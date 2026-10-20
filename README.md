@@ -51,11 +51,12 @@ To remove it later: `sudo rm -rf "/Library/Application Support/MacFans"`.
 
 ## Build
 
-Requires Homebrew Qt6 and CMake (already present on this machine).
+Requires Homebrew Qt6 and CMake.
 
 ```bash
+git clone https://github.com/rohamrajabzadeh/mac-fan-control.git
 cd mac-fan-control
-cmake -S . -B build -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt6 -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -DCMAKE_PREFIX_PATH="$(brew --prefix qt6)" -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j8
 ```
 
