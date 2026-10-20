@@ -1,6 +1,7 @@
 #include "macnative.h"
 
 #import <AppKit/AppKit.h>
+#import <UserNotifications/UserNotifications.h>
 
 #include <QHash>
 #include <QPainter>
@@ -144,6 +145,126 @@ void MacNative::configurePopupPanel(QWidget *w) {
 void MacNative::openUrl(const QString &url) {
     NSURL *u = [NSURL URLWithString:url.toNSString()];
     if (u) [[NSWorkspace sharedWorkspace] openURL:u];
+}
+
+// ---------------------------------------------------------------- file icons
+
+static QImage renderImage(NSImage *img, int px) {
+    const int scale = 2, W = px * scale;
+    QImage out(W, W, QImage::Format_ARGB32_Premultiplied);
+    out.fill(Qt::transparent);
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(out.bits(), W, W, 8, out.bytesPerLine(), cs,
+                                             kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+    if (ctx) {
+        NSGraphicsContext *gc = [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:NO];
+        [NSGraphicsContext saveGraphicsState];
+        [NSGraphicsContext setCurrentContext:gc];
+        [img drawInRect:NSMakeRect(0, 0, W, W) fromRect:NSZeroRect
+              operation:NSCompositingOperationSourceOver fraction:1.0];
+        [NSGraphicsContext restoreGraphicsState];
+        CGContextRelease(ctx);
+    }
+    CGColorSpaceRelease(cs);
+    out.setDevicePixelRatio(scale);
+    return out;
+}
+
+QPixmap MacNative::fileIcon(const QString &path, int px) {
+    static QHash<QString, QPixmap> cache;
+    const QString key = path + "|" + QString::number(px);
+    auto it = cache.constFind(key);
+    if (it != cache.constEnd()) return it.value();
+    QPixmap pm;
+    @autoreleasepool {
+        NSImage *img = [[NSWorkspace sharedWorkspace] iconForFile:path.toNSString()];
+        if (img) pm = QPixmap::fromImage(renderImage(img, px));
+    }
+    cache.insert(key, pm);
+    return pm;
+}
+
+QString MacNative::displayName(const QString &path) {
+    @autoreleasepool {
+        NSString *n = [[NSFileManager defaultManager] displayNameAtPath:path.toNSString()];
+        return n ? QString::fromNSString(n) : path;
+    }
+}
+
+bool MacNative::terminateApp(const QString &bundlePath) {
+    @autoreleasepool {
+        NSBundle *b = [NSBundle bundleWithPath:bundlePath.toNSString()];
+        NSString *bid = b.bundleIdentifier;
+        if (!bid || [bid isEqualToString:NSBundle.mainBundle.bundleIdentifier]) return false;
+        bool any = false;
+        for (NSRunningApplication *a in [NSRunningApplication runningApplicationsWithBundleIdentifier:bid])
+            any |= [a terminate];
+        return any;
+    }
+}
+
+// ---------------------------------------------------------------- notifications
+
+@interface MFNotifyDelegate : NSObject <UNUserNotificationCenterDelegate>
+@end
+@implementation MFNotifyDelegate
+- (void)userNotificationCenter:(UNUserNotificationCenter *)center
+       willPresentNotification:(UNNotification *)notification
+         withCompletionHandler:(void (^)(UNNotificationPresentationOptions))handler {
+    (void)center; (void)notification;
+    // Show banners even while MacFans is the active app.
+    handler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList |
+            UNNotificationPresentationOptionSound);
+}
+@end
+
+static UNUserNotificationCenter *notifyCenter() {
+    if (!NSBundle.mainBundle.bundleIdentifier) return nil; // not running from a bundle
+    static MFNotifyDelegate *delegate = nil;
+    UNUserNotificationCenter *c = [UNUserNotificationCenter currentNotificationCenter];
+    if (!delegate) {
+        delegate = [MFNotifyDelegate new];
+        c.delegate = delegate;
+    }
+    return c;
+}
+
+void MacNative::requestNotificationPermission() {
+    UNUserNotificationCenter *c = notifyCenter();
+    if (!c) return;
+    [c requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound)
+                     completionHandler:^(BOOL, NSError *) {}];
+}
+
+void MacNative::notify(const QString &title, const QString &body) {
+    UNUserNotificationCenter *c = notifyCenter();
+    if (!c) return;
+    UNMutableNotificationContent *content = [UNMutableNotificationContent new];
+    content.title = title.toNSString();
+    content.body = body.toNSString();
+    content.sound = UNNotificationSound.defaultSound;
+    UNNotificationRequest *req = [UNNotificationRequest requestWithIdentifier:NSUUID.UUID.UUIDString
+                                                                      content:content
+                                                                      trigger:nil];
+    NSString *t = title.toNSString(), *b = body.toNSString();
+    [c requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound)
+                     completionHandler:^(BOOL granted, NSError *error) {
+        if (granted) {
+            [c addNotificationRequest:req withCompletionHandler:nil];
+        } else if (error) {
+            // The notification system refused this (ad-hoc signed) app outright —
+            // not a user "Don't Allow". Fall back to an AppleScript notification.
+            NSString *(^esc)(NSString *) = ^NSString *(NSString *s) {
+                return [s stringByReplacingOccurrencesOfString:@"\"" withString:@"'"];
+            };
+            NSString *script = [NSString stringWithFormat:@"display notification \"%@\" with title \"%@\"",
+                                                          esc(b), esc(t)];
+            NSTask *task = [NSTask new];
+            task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/osascript"];
+            task.arguments = @[@"-e", script];
+            [task launchAndReturnError:nil];
+        }
+    }];
 }
 
 // ---------------------------------------------------------------- status item

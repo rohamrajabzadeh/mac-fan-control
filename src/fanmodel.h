@@ -12,6 +12,7 @@
 
 #include "hidsensors.h"
 #include "history.h"
+#include "powermon.h"
 #include "smc.h"
 #include "sysmon.h"
 
@@ -52,6 +53,7 @@ struct FanInfo {
     double sourceTemp = 0;    // raw °C of the driving source
     double ema = 0, emaPrev = 0, slope = 0; // smoothed °C and °C/s
     double piErrPrev = 0;
+    bool emergency = false;   // forced to max by the safety override
     QString status;           // human-readable controller status
 };
 
@@ -85,6 +87,12 @@ public:
     bool controlEnabled() const { return hasRoot_ || helperInstalled(); }
     bool helperInstalled() const;
     static QString helperPath();
+    int helperVersion() const { return helperVersion_; }
+    bool helperOutdated() const { return helperInstalled() && helperVersion_ < kHelperVersion; }
+    bool watchdogActive() const { return watchdog_; }
+    void refreshHelperState();   // re-read helper version (after (re)install)
+    void startWatchdog();        // crash protection: fans -> Auto if we die
+    static constexpr int kHelperVersion = 3;
 
     const QVector<FanInfo> &fans() const { return fans_; }
     const QVector<SensorNode> &nodes() const { return nodes_; }
@@ -99,6 +107,8 @@ public:
     QString sourceSymbol(const QString &source) const;
 
     const SysUsage &sysUsage() const { return sys_; }
+    const PowerSample &power() const { return pw_; }
+    const PowerMonitor &powerMonitor() const { return power_; }
     const History &history() const { return history_; }
 
     void setFanConfig(int fan, const FanControlConfig &cfg);
@@ -117,6 +127,8 @@ public:
 signals:
     void updated();
     void configChanged(int fan);
+    void controlFailed(const QString &reason);
+    void emergencyChanged(int fan, bool on, const QString &reason);
 
 private slots:
     void tick();
@@ -140,6 +152,11 @@ private:
     HidThermal hid_;
     SysMonitor sysmon_;
     SysUsage sys_;
+    PowerMonitor power_;
+    PowerSample pw_;
+    int helperVersion_ = 0;
+    bool watchdog_ = false;
+    int helperFailures_ = 0;
     History history_{3600};
     QVector<FanInfo> fans_;
     QVector<SensorNode> nodes_;

@@ -5,10 +5,14 @@
 #include "fanmodel.h"
 #include "gauge.h"
 #include "macnative.h"
+#include "alerts.h"
+#include "procmon.h"
+#include "procview.h"
 #include "prowidgets.h"
 #include "sensortree.h"
 #include "theme.h"
 
+#include <QCoreApplication>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -59,7 +63,7 @@ static QHBoxLayout *cardHeader(const QString &symbol, const QColor &a, const QCo
 
 // ================================================================ Dashboard
 
-DashboardPage::DashboardPage(FanModel *m, QWidget *parent) : QWidget(parent), m_(m) {
+DashboardPage::DashboardPage(FanModel *m, ProcessMonitor *pm, QWidget *parent) : QWidget(parent), m_(m) {
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     auto *content = new QWidget;
@@ -175,6 +179,66 @@ DashboardPage::DashboardPage(FanModel *m, QWidget *parent) : QWidget(parent), m_
     row->addWidget(tc, 9);
     v->addLayout(row, 1);
 
+    // --- Row 3: performance & power | top processes
+    auto *row3 = new QHBoxLayout;
+    row3->setSpacing(16);
+
+    auto *perf = card();
+    auto *pv = new QVBoxLayout(perf);
+    pv->setContentsMargins(20, 18, 20, 18);
+    pv->setSpacing(14);
+    auto *ph = cardHeader("bolt.fill", Theme::amber(), Theme::orange(), "Performance & Power", &pressureText_);
+    ph->addStretch();
+    pressurePill_ = new QLabel;
+    pressurePill_->setObjectName("hotPill");
+    ph->addWidget(pressurePill_);
+    pv->addLayout(ph);
+    auto *pbody = new QHBoxLayout;
+    pbody->setSpacing(24);
+    auto *wcol = new QVBoxLayout;
+    wcol->setSpacing(2);
+    auto *wcap = new QLabel("PACKAGE POWER");
+    wcap->setObjectName("capLabel");
+    watts_ = new QLabel("—");
+    watts_->setObjectName("bigValue");
+    wattsSub_ = new QLabel;
+    wattsSub_->setObjectName("cardSub");
+    powerSpark_ = new SparkWidget(&m->history(), "p:total", Theme::amber());
+    powerSpark_->setFixedHeight(46);
+    powerSpark_->setMinimumWidth(170);
+    wcol->addWidget(wcap);
+    wcol->addWidget(watts_);
+    wcol->addWidget(wattsSub_);
+    wcol->addWidget(powerSpark_);
+    pbody->addLayout(wcol, 4);
+    auto *bars = new QVBoxLayout;
+    bars->setSpacing(10);
+    auto *bcap = new QLabel("CLOCK SPEEDS · ACTIVITY");
+    bcap->setObjectName("capLabel");
+    bars->addWidget(bcap);
+    pBar_ = new MiniBar;
+    eBar_ = new MiniBar;
+    gBar_ = new MiniBar;
+    bars->addWidget(pBar_);
+    bars->addWidget(eBar_);
+    bars->addWidget(gBar_);
+    bars->addStretch();
+    pbody->addLayout(bars, 5);
+    pv->addLayout(pbody);
+    row3->addWidget(perf, 11);
+
+    auto *procs = card();
+    auto *prv = new QVBoxLayout(procs);
+    prv->setContentsMargins(20, 18, 20, 12);
+    prv->setSpacing(10);
+    auto *prh = cardHeader("flame.fill", Theme::orange(), Theme::red(), "What's Heating Your Mac", nullptr,
+                           "Top CPU users, grouped by app");
+    prv->addLayout(prh);
+    prv->addWidget(new ProcessListView(pm, 5, false, true));
+    prv->addStretch();
+    row3->addWidget(procs, 9);
+    v->addLayout(row3);
+
     outer->addWidget(pageScroll(content));
 
     connect(heroSrc_, &SourcePicker::sourceChanged, this, [](const QString &id) {
@@ -243,6 +307,32 @@ void DashboardPage::refresh() {
         Theme::setLabelColor(quickVals_[i], Theme::tempColor(v));
     }
     tree_->update();
+
+    // Performance & power
+    const PowerSample &pw = m_->power();
+    const QColor pc = Theme::pressureColor(pw.pressure);
+    pressurePill_->setText(QString::fromUtf8("\u25CF  ") + PowerMonitor::pressureName(pw.pressure));
+    const QString css = QString("color:%1; border:1px solid rgba(%2,%3,%4,90); background:rgba(%2,%3,%4,26);")
+                            .arg(pc.name()).arg(pc.red()).arg(pc.green()).arg(pc.blue());
+    if (pressurePill_->styleSheet() != css) pressurePill_->setStyleSheet(css);
+    pressureText_->setText(PowerMonitor::pressureDescription(pw.pressure));
+    if (pw.valid) {
+        watts_->setText(QString("%1 W").arg(pw.totalW, 0, 'f', pw.totalW < 10 ? 2 : 1));
+        wattsSub_->setText(QString("CPU %1 W  ·  GPU %2 W").arg(pw.cpuW, 0, 'f', 2).arg(pw.gpuW, 0, 'f', 2));
+        auto clock = [](double mhz) {
+            return mhz >= 1000 ? QString::number(mhz / 1000.0, 'f', 2) + " GHz" : QString::number(qRound(mhz)) + " MHz";
+        };
+        pBar_->set("Performance cores", QString("%1  ·  %2%").arg(clock(pw.pFreqMHz)).arg(qRound(pw.pUsage)),
+                   pw.pUsage, Theme::violet(), Theme::violetLight());
+        eBar_->set("Efficiency cores", QString("%1  ·  %2%").arg(clock(pw.eFreqMHz)).arg(qRound(pw.eUsage)),
+                   pw.eUsage, Theme::cyan(), Theme::blue());
+        gBar_->set("GPU", QString("%1  ·  %2%").arg(clock(pw.gpuFreqMHz)).arg(qRound(pw.gpuUsage)),
+                   pw.gpuUsage, Theme::green(), Theme::cyan());
+    } else {
+        watts_->setText(QStringLiteral("—"));
+        wattsSub_->setText(QStringLiteral("Power data isn't available on this Mac"));
+    }
+    powerSpark_->update();
 }
 
 // ================================================================ History
@@ -311,6 +401,7 @@ HistoryPage::HistoryPage(FanModel *m, QWidget *parent) : QWidget(parent), m_(m) 
     temps_->setAutoY(20, 12);
     temps_->setTransform(tempTf);
     temps_->setFormatter(tempFmt);
+    temps_->setBand("p:pressure");
     QHBoxLayout *tempHead = nullptr;
     auto *tempCard = chartCard("thermometer.medium", Theme::amber(), Theme::red(), "Temperatures", temps_, nullptr, &tempHead);
     tempCard->setMinimumHeight(340);
@@ -357,6 +448,32 @@ HistoryPage::HistoryPage(FanModel *m, QWidget *parent) : QWidget(parent), m_(m) 
     row->addWidget(chartCard("memorychip", Theme::violet(), Theme::violetLight(), "Memory & Swap", mem_, &memNow_), 1);
     for (LineChart *c : {fan_, cpu_, mem_}) c->setMinimumHeight(200);
     v->addLayout(row);
+
+    // Power & clocks
+    auto *row2 = new QHBoxLayout;
+    row2->setSpacing(16);
+    power_ = new LineChart(h);
+    power_->setSeries({{"p:cpu", "CPU", Theme::blue(), true},
+                       {"p:gpu", "GPU", Theme::green(), true},
+                       {"p:total", "Total", Theme::amber(), true}});
+    power_->setAutoY(0, 2);
+    power_->setFormatter([](double v) { return QString::number(v, 'f', v < 10 ? 1 : 0) + " W"; });
+    power_->setBand("p:pressure");
+    power_->setMinimumHeight(210);
+    row2->addWidget(chartCard("bolt.fill", Theme::amber(), Theme::orange(), "Power", power_, &powerNow_), 1);
+
+    clocks_ = new LineChart(h);
+    clocks_->setSeries({{"c:p", "P-cores", Theme::violet(), true},
+                        {"c:e", "E-cores", Theme::cyan(), true},
+                        {"c:g", "GPU", Theme::green(), true}});
+    const PowerMonitor &pmon = m->powerMonitor();
+    clocks_->setFixedYRange(0, std::max({1000.0, pmon.maxPFreqMHz(), pmon.maxEFreqMHz(), pmon.maxGpuFreqMHz()}));
+    clocks_->setFormatter([](double v) {
+        return v >= 1000 ? QString::number(v / 1000.0, 'f', 1) + " GHz" : QString::number(qRound(v)) + " MHz";
+    });
+    clocks_->setMinimumHeight(210);
+    row2->addWidget(chartCard("speedometer", Theme::violet(), Theme::pink(), "Clock Speeds", clocks_, &clockNow_), 1);
+    v->addLayout(row2);
     v->addStretch();
 
     outer->addWidget(pageScroll(content));
@@ -371,7 +488,7 @@ HistoryPage::HistoryPage(FanModel *m, QWidget *parent) : QWidget(parent), m_(m) 
 
 void HistoryPage::applySettings() {
     const int w = AppSettings::instance().historyRange();
-    for (LineChart *c : {temps_, fan_, cpu_, mem_}) c->setWindow(w);
+    for (LineChart *c : {temps_, fan_, cpu_, mem_, power_, clocks_}) c->setWindow(w);
     temps_->update();
 }
 
@@ -380,7 +497,10 @@ void HistoryPage::refresh() {
     if (!m_->fans().isEmpty()) fanNow_->setText(Theme::rpm(m_->fans().first().actual));
     cpuNow_->setText(QString("%1%").arg(qRound(su.cpu)));
     memNow_->setText(QString("%1 GB").arg(su.memUsedGB, 0, 'f', 1));
-    for (LineChart *c : {temps_, fan_, cpu_, mem_}) c->update();
+    const PowerSample &pw = m_->power();
+    powerNow_->setText(pw.valid ? QString("%1 W").arg(pw.totalW, 0, 'f', 1) : QStringLiteral("—"));
+    clockNow_->setText(pw.valid ? QString("%1 GHz").arg(pw.pFreqMHz / 1000.0, 0, 'f', 2) : QStringLiteral("—"));
+    for (LineChart *c : {temps_, fan_, cpu_, mem_, power_, clocks_}) c->update();
 }
 
 // ================================================================ Settings
@@ -429,7 +549,8 @@ static QFrame *section(const QString &title, const QVector<QWidget *> &rows) {
     return c;
 }
 
-SettingsPage::SettingsPage(FanModel *m, QWidget *parent) : QWidget(parent), m_(m) {
+SettingsPage::SettingsPage(FanModel *m, AlertManager *alerts, QWidget *parent)
+    : QWidget(parent), m_(m), alerts_(alerts) {
     AppSettings &as = AppSettings::instance();
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
@@ -495,6 +616,87 @@ SettingsPage::SettingsPage(FanModel *m, QWidget *parent) : QWidget(parent), m_(m
         settingRow("waveform.path.ecg", Theme::cyan(), "Update interval",
                    "How often sensors are read and the fan controller runs.", poll_)}));
 
+    // --- Alerts & safety
+    alTemp_ = new ToggleSwitch;
+    alTemp_->setCheckedSilently(as.alertTempOn());
+    auto *thr = new QWidget;
+    {
+        auto *h = new QHBoxLayout(thr);
+        h->setContentsMargins(0, 0, 0, 0);
+        h->setSpacing(10);
+        alThreshold_ = new ProSlider;
+        alThreshold_->setRange(60, 105);
+        alThreshold_->setStep(1);
+        alThreshold_->setGradient(Theme::amber(), Theme::red());
+        alThreshold_->setFixedWidth(190);
+        alThreshold_->setValue(as.alertTempC());
+        alThresholdVal_ = new QLabel;
+        alThresholdVal_->setObjectName("accentValue");
+        alThresholdVal_->setMinimumWidth(44);
+        alThresholdVal_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        h->addWidget(alThreshold_);
+        h->addWidget(alThresholdVal_);
+    }
+    alSource_ = new SourcePicker(m);
+    alSource_->setSource(as.alertTempSource());
+    alThrottle_ = new ToggleSwitch;
+    alThrottle_->setCheckedSilently(as.alertThrottleOn());
+    alFan_ = new ToggleSwitch;
+    alFan_->setCheckedSilently(as.alertFanOn());
+    emergency_ = new ToggleSwitch;
+    emergency_->setCheckedSilently(as.emergencyOn());
+    crashStatus_ = new QLabel;
+    crashStatus_->setObjectName("rowDesc");
+    crashStatus_->setWordWrap(true);
+    crashBtn_ = new ProButton("Update Helper", "arrow.down.circle.fill", ProButton::Primary);
+    crashBtn_->setGradient(Theme::amber(), Theme::orange());
+    auto *crashRow = new QWidget;
+    {
+        auto *h = new QHBoxLayout(crashRow);
+        h->setContentsMargins(0, 10, 0, 10);
+        h->setSpacing(14);
+        h->addWidget(new IconChip("checkmark.shield.fill", Theme::green(), 30), 0, Qt::AlignVCenter);
+        auto *vb = new QVBoxLayout;
+        vb->setSpacing(2);
+        auto *t = new QLabel("Crash protection");
+        t->setObjectName("rowTitle");
+        vb->addWidget(t);
+        vb->addWidget(crashStatus_);
+        h->addLayout(vb, 1);
+        h->addWidget(crashBtn_, 0, Qt::AlignVCenter);
+    }
+    auto *testBtn = new ProButton("Send Test", "bell.fill", ProButton::Secondary);
+    events_ = new QLabel;
+    events_->setObjectName("rowDesc");
+    events_->setTextFormat(Qt::RichText);
+    events_->setWordWrap(true);
+    auto *eventsRow = new QWidget;
+    {
+        auto *vb = new QVBoxLayout(eventsRow);
+        vb->setContentsMargins(0, 10, 0, 10);
+        vb->setSpacing(6);
+        auto *t = new QLabel("Recent alerts");
+        t->setObjectName("rowTitle");
+        vb->addWidget(t);
+        vb->addWidget(events_);
+    }
+    v->addWidget(section("Alerts & Safety", {
+        settingRow("thermometer.high", Theme::orange(), "High-temperature alert",
+                   "Notify me when the sensor below goes above the threshold.", alTemp_),
+        settingRow("dial.medium", Theme::amber(), "Alert threshold", QString(), thr),
+        settingRow("scope", Theme::violet(), "Sensor to watch", QString(), alSource_),
+        settingRow("gauge.with.dots.needle.33percent", Theme::red(), "Throttling alert",
+                   "Notify me when macOS reports heavy thermal pressure for more than 10 seconds.", alThrottle_),
+        settingRow("fan.fill", Theme::blue(), "Fan failure alert",
+                   "Notify me if a fan stops spinning or can't reach the speed it was asked for.", alFan_),
+        settingRow("flame.fill", Theme::red(), "Emergency cooling",
+                   "In any mode, force the fan to maximum if a sensor reaches 95° or macOS reports heavy thermal pressure. "
+                   "Releases below 85°.", emergency_),
+        crashRow,
+        settingRow("bell.fill", Theme::blue(), "Test notification",
+                   "Sends a sample alert. macOS asks for permission the first time.", testBtn),
+        eventsRow}));
+
     // --- Fan control
     helperStatus_ = new QLabel;
     helperStatus_->setObjectName("rowDesc");
@@ -536,7 +738,7 @@ SettingsPage::SettingsPage(FanModel *m, QWidget *parent) : QWidget(parent), m_(m
         h->addWidget(icon);
         auto *vb = new QVBoxLayout;
         vb->setSpacing(2);
-        auto *t = new QLabel("MacFans 2.0");
+        auto *t = new QLabel("MacFans " + QCoreApplication::applicationVersion());
         t->setObjectName("rowTitle");
         auto *d = new QLabel("Open-source fan control and thermal monitor for Apple silicon Macs.");
         d->setObjectName("rowDesc");
@@ -571,7 +773,49 @@ SettingsPage::SettingsPage(FanModel *m, QWidget *parent) : QWidget(parent), m_(m
             m_->setFanConfig(f.index, c);
         }
     });
+    auto wantNotifications = [](bool on) { if (on) MacNative::requestNotificationPermission(); };
+    connect(alTemp_, &QAbstractButton::toggled, this, [wantNotifications](bool on) {
+        AppSettings::instance().setAlertTempOn(on);
+        wantNotifications(on);
+    });
+    connect(alThreshold_, &ProSlider::valueChanged, this, [this](double v) {
+        alThresholdVal_->setText(AppSettings::instance().formatTemp(v));
+    });
+    connect(alThreshold_, &ProSlider::valueCommitted, this, [](double v) { AppSettings::instance().setAlertTempC(v); });
+    connect(alSource_, &SourcePicker::sourceChanged, this, [](const QString &id) {
+        AppSettings::instance().setAlertTempSource(id);
+    });
+    connect(alThrottle_, &QAbstractButton::toggled, this, [wantNotifications](bool on) {
+        AppSettings::instance().setAlertThrottleOn(on);
+        wantNotifications(on);
+    });
+    connect(alFan_, &QAbstractButton::toggled, this, [wantNotifications](bool on) {
+        AppSettings::instance().setAlertFanOn(on);
+        wantNotifications(on);
+    });
+    connect(emergency_, &QAbstractButton::toggled, this, [](bool on) { AppSettings::instance().setEmergencyOn(on); });
+    connect(crashBtn_, &QAbstractButton::clicked, this, &SettingsPage::enableControlRequested);
+    connect(testBtn, &QAbstractButton::clicked, this, [this] { alerts_->sendTest(); });
+    connect(alerts_, &AlertManager::eventsChanged, this, &SettingsPage::refreshEvents);
+    refreshEvents();
     refresh();
+}
+
+void SettingsPage::refreshEvents() {
+    const auto &ev = alerts_->events();
+    if (ev.isEmpty()) {
+        events_->setText("No alerts yet — everything has stayed within limits.");
+        return;
+    }
+    QStringList rows;
+    for (int i = 0; i < ev.size() && i < 6; ++i) {
+        const AlertEvent &e = ev[i];
+        rows << QString("<span style='color:%1;'>&#9679;</span>&nbsp; <b style='color:#d6dbe4;'>%2</b>"
+                        "&nbsp;<span style='color:#6e7686;'>%3</span><br/>"
+                        "<span style='color:#8b93a3;'>%4</span>")
+                    .arg(e.color.name(), e.title.toHtmlEscaped(), e.when.toString("HH:mm"), e.body.toHtmlEscaped());
+    }
+    events_->setText(rows.join("<br/><br/>"));
 }
 
 void SettingsPage::refresh() {
@@ -593,5 +837,33 @@ void SettingsPage::refresh() {
         helperBtn_->setText("Enable");
         helperBtn_->setVariant(ProButton::Primary);
         helperBtn_->setGradient(Theme::amber(), Theme::orange());
+    }
+    if (m_->helperOutdated()) {
+        helperStatus_->setText("Installed — an update is available that adds crash protection.");
+        helperBtn_->setText("Update");
+        helperBtn_->setVariant(ProButton::Primary);
+        helperBtn_->setGradient(Theme::amber(), Theme::orange());
+    }
+
+    // Alerts & safety
+    alTemp_->setCheckedSilently(as.alertTempOn());
+    alThrottle_->setCheckedSilently(as.alertThrottleOn());
+    alFan_->setCheckedSilently(as.alertFanOn());
+    emergency_->setCheckedSilently(as.emergencyOn());
+    if (!alThreshold_->isDragging()) alThreshold_->setValue(as.alertTempC());
+    alThresholdVal_->setText(as.formatTemp(alThreshold_->value()));
+    alSource_->setSource(as.alertTempSource());
+    crashBtn_->setVisible(false);
+    if (m_->hasRoot()) {
+        crashStatus_->setText("Running with administrator rights; MacFans returns fans to Auto when it quits.");
+    } else if (!m_->helperInstalled()) {
+        crashStatus_->setText("Enable fan control first. Without it, MacFans never forces the fans.");
+    } else if (m_->helperOutdated()) {
+        crashStatus_->setText("Not active — your helper predates crash protection. Update it once (one password prompt).");
+        crashBtn_->setVisible(true);
+    } else if (m_->watchdogActive()) {
+        crashStatus_->setText("Active. If MacFans ever crashes or is force-quit, your fans go back to macOS automatically.");
+    } else {
+        crashStatus_->setText("Ready — becomes active the next time MacFans starts.");
     }
 }

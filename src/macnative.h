@@ -33,6 +33,17 @@ void configurePopupPanel(QWidget *w);
 
 void openUrl(const QString &url);
 
+// Finder icon / display name of an app bundle or file (cached).
+QPixmap fileIcon(const QString &path, int px);
+QString displayName(const QString &path);
+// Ask a running app (by bundle path) to quit normally. Never targets MacFans.
+bool terminateApp(const QString &bundlePath);
+
+// macOS notifications (UNUserNotificationCenter). The first call asks for
+// permission; when notifications are unavailable it falls back silently.
+void requestNotificationPermission();
+void notify(const QString &title, const QString &body);
+
 // A native menu-bar status item: template SF Symbol + optional text.
 class StatusItem {
 public:

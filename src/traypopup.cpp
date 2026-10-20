@@ -3,6 +3,8 @@
 #include "fancard.h"
 #include "fanmodel.h"
 #include "macnative.h"
+#include "procmon.h"
+#include "procview.h"
 #include "prowidgets.h"
 #include "theme.h"
 
@@ -25,42 +27,6 @@
 
 static const int kPad = 16; // room for the drawn shadow
 
-// ================================================================ MiniBar
-
-MiniBar::MiniBar(QWidget *parent) : QWidget(parent) { setFixedHeight(32); }
-
-void MiniBar::set(const QString &label, const QString &value, double pct, const QColor &a, const QColor &b) {
-    label_ = label;
-    value_ = value;
-    pct_ = std::clamp(pct, 0.0, 100.0);
-    a_ = a;
-    b_ = b;
-    update();
-}
-
-void MiniBar::paintEvent(QPaintEvent *) {
-    QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing);
-    const qreal w = width();
-    p.setFont(Theme::font(11, QFont::DemiBold));
-    p.setPen(Theme::textDim());
-    p.drawText(QRectF(0, 0, w, 15), Qt::AlignLeft | Qt::AlignVCenter, label_);
-    p.setFont(Theme::font(11, QFont::Bold, true));
-    p.setPen(Theme::text());
-    p.drawText(QRectF(0, 0, w, 15), Qt::AlignRight | Qt::AlignVCenter, value_);
-    QRectF track(0, 21, w, 5);
-    p.setPen(Qt::NoPen);
-    p.setBrush(Theme::track());
-    p.drawRoundedRect(track, 2.5, 2.5);
-    if (pct_ > 0.3) {
-        QLinearGradient g(0, 0, w, 0);
-        g.setColorAt(0, a_);
-        g.setColorAt(1, b_);
-        p.setBrush(g);
-        p.drawRoundedRect(QRectF(0, 21, w * pct_ / 100.0, 5), 2.5, 2.5);
-    }
-}
-
 // ================================================================ TrayPopup
 
 static QFrame *divider() {
@@ -77,7 +43,7 @@ static QLabel *small(const QString &t, const char *obj = "popupNote") {
     return l;
 }
 
-TrayPopup::TrayPopup(FanModel *model, QWidget *parent)
+TrayPopup::TrayPopup(FanModel *model, ProcessMonitor *procs, QWidget *parent)
     : QWidget(parent, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint |
                           Qt::NoDropShadowWindowHint),
       m_(model) {
@@ -117,6 +83,17 @@ TrayPopup::TrayPopup(FanModel *model, QWidget *parent)
     head->addWidget(rpm_);
     v->addLayout(head);
 
+    // Status strip: thermal pressure · power · clock
+    auto *strip = new QHBoxLayout;
+    strip->setSpacing(8);
+    pressure_ = new QLabel;
+    pressure_->setObjectName("popupPill");
+    strip->addWidget(pressure_);
+    powerLine_ = new QLabel;
+    powerLine_->setObjectName("popupNote");
+    strip->addWidget(powerLine_, 1);
+    v->addLayout(strip);
+
     v->addWidget(divider());
 
     // Temperatures (top-level groups) in two columns
@@ -144,6 +121,13 @@ TrayPopup::TrayPopup(FanModel *model, QWidget *parent)
         ++k;
     }
     v->addLayout(temps);
+
+    v->addWidget(divider());
+
+    auto *phd = new QLabel("WHAT'S HEATING YOUR MAC");
+    phd->setObjectName("popupCap");
+    v->addWidget(phd);
+    v->addWidget(new ProcessListView(procs, 3, true, false));
 
     v->addWidget(divider());
 
@@ -178,7 +162,7 @@ TrayPopup::TrayPopup(FanModel *model, QWidget *parent)
     }
     v->addWidget(modes_);
 
-    panels_ = new QStackedWidget;
+    panels_ = new PanelStack;
     // 0 Auto
     panels_->addWidget(small("macOS is controlling the fan. Pick a mode to take over."));
     // 1 Custom
@@ -293,11 +277,7 @@ void TrayPopup::push() {
 }
 
 void TrayPopup::showModePanel(int mode) {
-    for (int i = 0; i < panels_->count(); ++i)
-        panels_->widget(i)->setSizePolicy(i == mode ? QSizePolicy::Preferred : QSizePolicy::Ignored,
-                                          i == mode ? QSizePolicy::Preferred : QSizePolicy::Ignored);
     panels_->setCurrentIndex(mode);
-    panels_->adjustSize();
     if (isVisible()) {
         // Keep the top edge anchored while the height changes.
         QPoint tl = pos();
@@ -352,6 +332,17 @@ void TrayPopup::refresh() {
         tempVals_[i]->setText(ok ? as.formatTemp(v) : QStringLiteral("—"));
         Theme::setLabelColor(tempVals_[i], Theme::tempColor(v));
     }
+    const PowerSample &pw = m_->power();
+    const QColor pc = Theme::pressureColor(pw.pressure);
+    pressure_->setText(QString::fromUtf8("\u25CF ") + PowerMonitor::pressureName(pw.pressure));
+    const QString pcss = QString("color:%1; border:1px solid rgba(%2,%3,%4,90); background:rgba(%2,%3,%4,26);")
+                             .arg(pc.name()).arg(pc.red()).arg(pc.green()).arg(pc.blue());
+    if (pressure_->styleSheet() != pcss) pressure_->setStyleSheet(pcss);
+    pressure_->setToolTip(PowerMonitor::pressureDescription(pw.pressure));
+    powerLine_->setText(pw.valid ? QString("%1 W  ·  P-cores %2 GHz")
+                                       .arg(pw.totalW, 0, 'f', 1)
+                                       .arg(pw.pFreqMHz / 1000.0, 0, 'f', 2)
+                                 : QString());
     const SysUsage &su = m_->sysUsage();
     cpu_->set("CPU", QString("%1%").arg(qRound(su.cpu)), su.cpu, Theme::blue(), Theme::blueLight());
     mem_->set("Memory", QString("%1 / %2 GB").arg(su.memUsedGB, 0, 'f', 1).arg(su.memTotalGB, 0, 'f', 0),
@@ -420,9 +411,10 @@ void TrayPopup::paintEvent(QPaintEvent *) {
 
 // ================================================================ TrayController
 
-TrayController::TrayController(FanModel *model, QObject *parent) : QObject(parent), m_(model) {
+TrayController::TrayController(FanModel *model, ProcessMonitor *procs, QObject *parent)
+    : QObject(parent), m_(model) {
     item_.setSymbol("fan");
-    popup_ = new TrayPopup(model);
+    popup_ = new TrayPopup(model, procs);
     item_.onClick = [this](QRect r) { toggle(r); };
 
     connect(popup_, &TrayPopup::openWindowRequested, this, &TrayController::openWindow);

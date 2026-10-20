@@ -60,6 +60,16 @@ inline QColor loadColor(double pct, const QColor &base) {
     return mix(orange(), red(), std::min(1.0, (pct - 90) / 10.0));
 }
 
+// Thermal pressure: Nominal green, Moderate amber, Heavy orange, worse red.
+inline QColor pressureColor(int level) {
+    switch (level) {
+    case 0: return green();
+    case 1: return amber();
+    case 2: return orange();
+    default: return red();
+    }
+}
+
 // Category color used for sensor groups and chart series.
 inline QColor categoryColor(const QString &icon) {
     if (icon == "cpu")     return blue();

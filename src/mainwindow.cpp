@@ -1,8 +1,10 @@
 #include "mainwindow.h"
+#include "alerts.h"
 #include "appsettings.h"
 #include "fanmodel.h"
 #include "macnative.h"
 #include "pages.h"
+#include "procmon.h"
 #include "prowidgets.h"
 #include "theme.h"
 #include "traypopup.h"
@@ -13,6 +15,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QGraphicsOpacityEffect>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
@@ -26,7 +30,13 @@ MainWindow::MainWindow(FanModel *model, QWidget *parent) : QMainWindow(parent), 
     setWindowTitle("MacFans");
     setWindowIcon(QIcon(":/icons/appicon.png"));
     setMinimumSize(1060, 700);
-    resize(1220, 860);
+    if (QScreen *scr = QGuiApplication::primaryScreen()) {
+        const QRect a = scr->availableGeometry();
+        resize(std::min(1260, a.width() - 40), std::min(1060, a.height() - 40));
+    }
+
+    procs_ = new ProcessMonitor(this);
+    alerts_ = new AlertManager(m_, this);
 
     auto *central = new QWidget;
     central->setObjectName("root");
@@ -36,16 +46,16 @@ MainWindow::MainWindow(FanModel *model, QWidget *parent) : QMainWindow(parent), 
     root->addWidget(buildHeader());
 
     pages_ = new QStackedWidget;
-    dash_ = new DashboardPage(m_);
+    dash_ = new DashboardPage(m_, procs_);
     hist_ = new HistoryPage(m_);
-    settings_ = new SettingsPage(m_);
+    settings_ = new SettingsPage(m_, alerts_);
     pages_->addWidget(dash_);
     pages_->addWidget(hist_);
     pages_->addWidget(settings_);
     root->addWidget(pages_, 1);
     setCentralWidget(central);
 
-    tray_ = new TrayController(m_, this);
+    tray_ = new TrayController(m_, procs_, this);
     connect(tray_, &TrayController::openWindow, this, [this](int tab) { showFromTray(tab); });
 
     connect(dash_, &DashboardPage::enableControlRequested, this, &MainWindow::enableControl);
@@ -91,6 +101,9 @@ QWidget *MainWindow::buildHeader() {
     h->addWidget(tabs_);
     h->addStretch(1);
 
+    pressure_ = new QLabel;
+    pressure_->setObjectName("hotPill");
+    h->addWidget(pressure_);
     pill_ = new ProButton("Control Enabled", "checkmark.shield.fill", ProButton::Secondary);
     h->addWidget(pill_);
     connect(pill_, &QAbstractButton::clicked, this, [this] {
@@ -137,6 +150,15 @@ void MainWindow::applySettings() {
 }
 
 void MainWindow::updateStatusPill() {
+    const PowerSample &pw = m_->power();
+    const QColor pc = Theme::pressureColor(pw.pressure);
+    pressure_->setText(QString::fromUtf8("\u25CF  ") + PowerMonitor::pressureName(pw.pressure));
+    pressure_->setToolTip("Thermal pressure: " + PowerMonitor::pressureDescription(pw.pressure));
+    const QString css = QString("color:%1; border:1px solid rgba(%2,%3,%4,90); background:rgba(%2,%3,%4,26);"
+                                "padding:6px 12px; border-radius:12px;")
+                            .arg(pc.name()).arg(pc.red()).arg(pc.green()).arg(pc.blue());
+    if (pressure_->styleSheet() != css) pressure_->setStyleSheet(css);
+
     if (m_->controlEnabled()) {
         pill_->setText("Control Enabled");
         pill_->setSymbol("checkmark.shield.fill");
@@ -197,6 +219,8 @@ void MainWindow::enableControl() {
     p.waitForFinished(120000);
 
     if (m_->helperInstalled()) {
+        m_->refreshHelperState();
+        m_->startWatchdog();
         updateStatusPill();
         settings_->refresh();
         refresh();

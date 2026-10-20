@@ -13,6 +13,9 @@ class HistoryPage;
 class SettingsPage;
 class ProButton;
 class TrayController;
+class ProcessMonitor;
+class AlertManager;
+class QLabel;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -43,5 +46,8 @@ private:
     HistoryPage *hist_ = nullptr;
     SettingsPage *settings_ = nullptr;
     ProButton *pill_ = nullptr;
+    QLabel *pressure_ = nullptr;
     TrayController *tray_ = nullptr;
+    ProcessMonitor *procs_ = nullptr;
+    AlertManager *alerts_ = nullptr;
 };

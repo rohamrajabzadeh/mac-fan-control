@@ -34,6 +34,8 @@ public:
     // Formats axis/tooltip values (already transformed).
     void setFormatter(std::function<QString(double)> f) { fmt_ = std::move(f); update(); }
     void setFillAlpha(double a) { fillAlpha_ = a; }
+    // Shade the background wherever this series is > 0 (thermal pressure).
+    void setBand(const QString &id) { band_ = id; update(); }
 
     QSize sizeHint() const override { return QSize(600, 220); }
 
@@ -52,6 +54,7 @@ private:
     std::function<double(double)> tf_;
     std::function<QString(double)> fmt_;
     qreal hoverX_ = -1;
+    QString band_;
 };
 
 // Draw a compact smoothed sparkline (with soft area fill) for one series.

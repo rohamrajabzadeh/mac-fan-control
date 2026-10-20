@@ -2,6 +2,7 @@
 #include "appsettings.h"
 #include "theme.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QHash>
 #include <QProcess>
@@ -79,9 +80,31 @@ bool FanModel::init() {
     discoverSensors();
     loadSettings();
     sys_ = sysmon_.sample(); // prime the CPU delta baseline
+    pw_ = power_.sample();
+    refreshHelperState();
+    startWatchdog();
     clock_.start();
     tick();
     return true;
+}
+
+void FanModel::refreshHelperState() {
+    helperVersion_ = 0;
+    if (!helperInstalled()) return;
+    QProcess p;
+    p.start(helperPath(), {"version"});
+    if (p.waitForFinished(2000) && p.exitStatus() == QProcess::NormalExit && p.exitCode() == 0)
+        helperVersion_ = QString::fromUtf8(p.readAllStandardOutput()).trimmed().toInt();
+    else
+        helperVersion_ = 1; // pre-watchdog helper (no "version" command)
+}
+
+void FanModel::startWatchdog() {
+    // A detached root helper waits for this process to exit — normally or by
+    // crash / force-quit — and then hands every fan back to macOS.
+    if (watchdog_ || !helperInstalled() || helperVersion_ < kHelperVersion) return;
+    watchdog_ = QProcess::startDetached(
+        helperPath(), {"watch", QString::number(QCoreApplication::applicationPid())});
 }
 
 void FanModel::start() { timer_.start(pollMs_); }
@@ -423,6 +446,15 @@ void FanModel::recordHistory() {
     h.insert("s:mem", float(sys_.memPercent));
     h.insert("s:memgb", float(sys_.memUsedGB));
     h.insert("s:swapgb", float(sys_.swapUsedGB));
+    h.insert("p:pressure", float(pw_.pressure));
+    if (pw_.valid) {
+        h.insert("p:cpu", float(pw_.cpuW));
+        h.insert("p:gpu", float(pw_.gpuW));
+        h.insert("p:total", float(pw_.totalW));
+        h.insert("c:p", float(pw_.pFreqMHz));
+        h.insert("c:e", float(pw_.eFreqMHz));
+        h.insert("c:g", float(pw_.gpuFreqMHz));
+    }
     history_.push(QDateTime::currentMSecsSinceEpoch(), h);
 }
 
@@ -437,6 +469,7 @@ void FanModel::tick() {
     }
     readSensors();
     sys_ = sysmon_.sample();
+    pw_ = power_.sample();
 
     for (auto &f : fans_) {
         track(f, dt);
@@ -483,6 +516,10 @@ void FanModel::applyControl(FanInfo &f, double dt) {
         }
         f.commanded = -1;
         f.status = QStringLiteral("Controlled by macOS");
+        if (f.emergency) { // macOS is in charge again; nothing to override
+            f.emergency = false;
+            emit emergencyChanged(f.index, false, QString());
+        }
         return;
     }
 
@@ -552,6 +589,30 @@ void FanModel::applyControl(FanInfo &f, double dt) {
     }
     default:
         break;
+    }
+
+    // Safety override: whatever the user's mode, critical heat forces the fan
+    // to maximum until things settle (hysteresis: on at 95°, off below 85°).
+    if (as.emergencyOn()) {
+        const double hot = hottest();
+        if (!f.emergency && (hot >= 95.0 || pw_.pressure >= 2)) {
+            f.emergency = true;
+            emit emergencyChanged(f.index, true,
+                                  hot >= 95.0 ? QStringLiteral("%1 reached %2").arg(hottestLabel(), as.formatTemp(hot))
+                                              : QStringLiteral("macOS reports %1 thermal pressure")
+                                                    .arg(PowerMonitor::pressureName(pw_.pressure).toLower()));
+        } else if (f.emergency && hot < 85.0 && pw_.pressure < 2) {
+            f.emergency = false;
+            emit emergencyChanged(f.index, false, QString());
+        }
+    } else if (f.emergency) {
+        f.emergency = false;
+        emit emergencyChanged(f.index, false, QString());
+    }
+    if (f.emergency) {
+        desired = hi;
+        upRate = range;
+        f.status = QStringLiteral("Emergency cooling — fan forced to maximum");
     }
 
     desired = std::clamp(desired, lo, hi);
@@ -643,14 +704,21 @@ void FanModel::pumpHelper() {
     if (helperProc_ || helperQueue_.isEmpty()) return;
     const QStringList args = helperQueue_.takeFirst();
     helperProc_ = new QProcess(this);
-    auto done = [this] {
+    auto done = [this](bool ok) {
         if (!helperProc_) return;
         helperProc_->deleteLater();
         helperProc_ = nullptr;
+        // Repeated helper failures mean we are not really controlling the fan.
+        if (ok) helperFailures_ = 0;
+        else if (++helperFailures_ == 3)
+            emit controlFailed(QStringLiteral("The fan-control helper failed repeatedly. "
+                                              "Try Settings → Reinstall, or switch the fan to Auto."));
         pumpHelper();
     };
-    connect(helperProc_, &QProcess::finished, this, done);
-    connect(helperProc_, &QProcess::errorOccurred, this, done);
+    connect(helperProc_, &QProcess::finished, this, [this, done](int code, QProcess::ExitStatus st) {
+        done(st == QProcess::NormalExit && code == 0);
+    });
+    connect(helperProc_, &QProcess::errorOccurred, this, [done](QProcess::ProcessError) { done(false); });
     helperProc_->start(helperPath(), args);
 }
 

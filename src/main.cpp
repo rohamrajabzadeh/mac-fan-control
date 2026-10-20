@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
     QCoreApplication::setOrganizationName("Personal");
     QCoreApplication::setOrganizationDomain("macfans.local");
     QCoreApplication::setApplicationName("MacFans");
-    QCoreApplication::setApplicationVersion("2.0.0");
+    QCoreApplication::setApplicationVersion("2.1.0");
     // Closing the window must not quit: MacFans lives on in the menu bar.
     app.setQuitOnLastWindowClosed(false);
 

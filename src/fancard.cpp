@@ -142,7 +142,7 @@ FanCard::FanCard(FanModel *model, int fanIndex, QWidget *parent)
     v->addWidget(modes_);
 
     // Panels
-    panels_ = new QStackedWidget;
+    panels_ = new PanelStack;
     panels_->addWidget(buildAutoPanel());
     panels_->addWidget(buildCustomPanel());
     panels_->addWidget(buildCurvePanel());
@@ -418,11 +418,7 @@ void FanCard::showPanel(int mode) {
     const bool animate = panelsInit_ && isVisible();
     panelsInit_ = true;
     // Size the stack to the active page only.
-    for (int i = 0; i < panels_->count(); ++i)
-        panels_->widget(i)->setSizePolicy(i == mode ? QSizePolicy::Preferred : QSizePolicy::Ignored,
-                                          i == mode ? QSizePolicy::Preferred : QSizePolicy::Ignored);
     panels_->setCurrentIndex(mode);
-    panels_->adjustSize();
     if (!animate) return;
     QWidget *page = panels_->currentWidget();
     auto *fx = new QGraphicsOpacityEffect(page);

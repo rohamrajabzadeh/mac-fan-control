@@ -33,6 +33,20 @@ public:
     bool launchAtLogin() const;           // reads LaunchAgent presence
     bool setLaunchAtLogin(bool on);       // writes/removes LaunchAgent
 
+    // Alerts & safety
+    bool alertTempOn() const { return alertTempOn_; }
+    void setAlertTempOn(bool on);
+    double alertTempC() const { return alertTempC_; }
+    void setAlertTempC(double c);
+    QString alertTempSource() const { return alertTempSource_; }
+    void setAlertTempSource(const QString &id);
+    bool alertThrottleOn() const { return alertThrottleOn_; }
+    void setAlertThrottleOn(bool on);
+    bool alertFanOn() const { return alertFanOn_; }
+    void setAlertFanOn(bool on);
+    bool emergencyOn() const { return emergencyOn_; }
+    void setEmergencyOn(bool on);
+
     // UI state
     QString gaugeSource() const { return gaugeSource_; }
     void setGaugeSource(const QString &id);
@@ -60,4 +74,10 @@ private:
     QStringList expanded_;
     int historyRange_ = 300;
     QStringList hiddenSeries_;
+    bool alertTempOn_ = true;
+    double alertTempC_ = 90;
+    QString alertTempSource_ = "__hottest__";
+    bool alertThrottleOn_ = true;
+    bool alertFanOn_ = true;
+    bool emergencyOn_ = true;
 };

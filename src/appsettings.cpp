@@ -30,6 +30,12 @@ AppSettings::AppSettings() {
     expanded_     = s.value("ui/expanded").toStringList();
     historyRange_ = s.value("ui/historyRange", 300).toInt();
     hiddenSeries_ = s.value("ui/hiddenSeries").toStringList();
+    alertTempOn_     = s.value("alerts/tempOn", true).toBool();
+    alertTempC_      = s.value("alerts/tempC", 90).toDouble();
+    alertTempSource_ = s.value("alerts/tempSource", "__hottest__").toString();
+    alertThrottleOn_ = s.value("alerts/throttleOn", true).toBool();
+    alertFanOn_      = s.value("alerts/fanOn", true).toBool();
+    emergencyOn_     = s.value("safety/emergencyOn", true).toBool();
     if (pollMs_ < 500 || pollMs_ > 10000) pollMs_ = 1500;
 }
 
@@ -45,6 +51,12 @@ void AppSettings::save() {
     s.setValue("ui/expanded", expanded_);
     s.setValue("ui/historyRange", historyRange_);
     s.setValue("ui/hiddenSeries", hiddenSeries_);
+    s.setValue("alerts/tempOn", alertTempOn_);
+    s.setValue("alerts/tempC", alertTempC_);
+    s.setValue("alerts/tempSource", alertTempSource_);
+    s.setValue("alerts/throttleOn", alertThrottleOn_);
+    s.setValue("alerts/fanOn", alertFanOn_);
+    s.setValue("safety/emergencyOn", emergencyOn_);
 }
 
 #define SETTER(field, value) \
@@ -59,6 +71,12 @@ void AppSettings::setShowWindowAtLaunch(bool on)    { SETTER(showWindow_, on) }
 void AppSettings::setGaugeSource(const QString &id) { SETTER(gaugeSource_, id) }
 void AppSettings::setHistoryRange(int s)            { SETTER(historyRange_, s) }
 void AppSettings::setHiddenSeries(const QStringList &ids) { SETTER(hiddenSeries_, ids) }
+void AppSettings::setAlertTempOn(bool on)           { SETTER(alertTempOn_, on) }
+void AppSettings::setAlertTempC(double c)           { SETTER(alertTempC_, c) }
+void AppSettings::setAlertTempSource(const QString &id) { SETTER(alertTempSource_, id) }
+void AppSettings::setAlertThrottleOn(bool on)       { SETTER(alertThrottleOn_, on) }
+void AppSettings::setAlertFanOn(bool on)            { SETTER(alertFanOn_, on) }
+void AppSettings::setEmergencyOn(bool on)           { SETTER(emergencyOn_, on) }
 
 void AppSettings::setPollMs(int ms) {
     ms = qBound(500, ms, 10000);

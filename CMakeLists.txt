@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(MacFans VERSION 2.0.0 LANGUAGES CXX OBJCXX)
+project(MacFans VERSION 2.1.0 LANGUAGES CXX OBJCXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -30,6 +30,7 @@ set_source_files_properties(src/macnative.mm PROPERTIES COMPILE_FLAGS "-fobjc-ar
 
 qt_add_executable(MacFans
     src/main.cpp
+    src/alerts.cpp          src/alerts.h
     src/appsettings.cpp     src/appsettings.h
     src/charts.cpp          src/charts.h
     src/curveeditor.cpp     src/curveeditor.h
@@ -41,6 +42,9 @@ qt_add_executable(MacFans
     src/macnative.mm        src/macnative.h
     src/mainwindow.cpp      src/mainwindow.h
     src/pages.cpp           src/pages.h
+    src/powermon.cpp        src/powermon.h
+    src/procmon.cpp         src/procmon.h
+    src/procview.cpp        src/procview.h
     src/prowidgets.cpp      src/prowidgets.h
     src/sensortree.cpp      src/sensortree.h
     src/smc.cpp             src/smc.h
@@ -55,6 +59,8 @@ target_link_libraries(MacFans PRIVATE Qt6::Widgets
     "-framework IOKit"
     "-framework CoreFoundation"
     "-framework AppKit"
+    "-framework UserNotifications"
+    IOReport
 )
 
 # Menu-bar-first app: LSUIElement keeps it out of the Dock until a window is

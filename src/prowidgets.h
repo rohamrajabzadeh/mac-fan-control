@@ -220,6 +220,38 @@ private:
     bool allowAuto_ = true, allowHottest_ = true;
 };
 
+// ---------------------------------------------------------------- PanelStack
+// Like QStackedWidget, but hidden pages are excluded from layout, so the stack
+// is exactly as tall as the visible page (QStackedWidget sizes to the tallest
+// word-wrapped page via heightForWidth, even when it is hidden).
+class PanelStack : public QWidget {
+public:
+    explicit PanelStack(QWidget *parent = nullptr);
+    void addWidget(QWidget *w);
+    int count() const { return pages_.size(); }
+    QWidget *widget(int i) const { return pages_.value(i); }
+    int currentIndex() const { return current_; }
+    QWidget *currentWidget() const { return pages_.value(current_); }
+    void setCurrentIndex(int i);
+private:
+    QVector<QWidget *> pages_;
+    int current_ = -1;
+};
+
+// ---------------------------------------------------------------- MiniBar
+// Compact labelled bar: label left, value right, gradient fill underneath.
+class MiniBar : public QWidget {
+public:
+    explicit MiniBar(QWidget *parent = nullptr);
+    void set(const QString &label, const QString &value, double pct, const QColor &a, const QColor &b);
+protected:
+    void paintEvent(QPaintEvent *) override;
+private:
+    QString label_, value_;
+    double pct_ = 0;
+    QColor a_, b_;
+};
+
 // ---------------------------------------------------------------- LegendChip
 class LegendChip : public QAbstractButton {
 public:

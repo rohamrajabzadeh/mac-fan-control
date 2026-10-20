@@ -10,6 +10,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QVBoxLayout>
 #include <QWheelEvent>
 #include <algorithm>
 #include <cmath>
@@ -750,4 +751,62 @@ void LegendChip::paintEvent(QPaintEvent *) {
     p.setFont(Theme::font(11.5, QFont::DemiBold));
     p.setPen(on ? Theme::text() : Theme::textMuted());
     p.drawText(r.adjusted(24, 0, -8, 0), Qt::AlignVCenter | Qt::AlignLeft, text());
+}
+// ================================================================ MiniBar
+
+MiniBar::MiniBar(QWidget *parent) : QWidget(parent) { setFixedHeight(32); }
+
+void MiniBar::set(const QString &label, const QString &value, double pct, const QColor &a, const QColor &b) {
+    label_ = label;
+    value_ = value;
+    pct_ = std::clamp(pct, 0.0, 100.0);
+    a_ = a;
+    b_ = b;
+    update();
+}
+
+void MiniBar::paintEvent(QPaintEvent *) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const qreal w = width();
+    p.setFont(Theme::font(11, QFont::DemiBold));
+    p.setPen(Theme::textDim());
+    p.drawText(QRectF(0, 0, w, 15), Qt::AlignLeft | Qt::AlignVCenter, label_);
+    p.setFont(Theme::font(11, QFont::Bold, true));
+    p.setPen(Theme::text());
+    p.drawText(QRectF(0, 0, w, 15), Qt::AlignRight | Qt::AlignVCenter, value_);
+    QRectF track(0, 21, w, 5);
+    p.setPen(Qt::NoPen);
+    p.setBrush(Theme::track());
+    p.drawRoundedRect(track, 2.5, 2.5);
+    if (pct_ > 0.3) {
+        QLinearGradient g(0, 0, w, 0);
+        g.setColorAt(0, a_);
+        g.setColorAt(1, b_);
+        p.setBrush(g);
+        p.drawRoundedRect(QRectF(0, 21, w * pct_ / 100.0, 5), 2.5, 2.5);
+    }
+}
+
+
+// ================================================================ PanelStack
+
+PanelStack::PanelStack(QWidget *parent) : QWidget(parent) {
+    auto *l = new QVBoxLayout(this);
+    l->setContentsMargins(0, 0, 0, 0);
+    l->setSpacing(0);
+}
+
+void PanelStack::addWidget(QWidget *w) {
+    pages_.push_back(w);
+    layout()->addWidget(w);
+    w->setVisible(pages_.size() - 1 == current_);
+    if (current_ < 0) setCurrentIndex(0);
+}
+
+void PanelStack::setCurrentIndex(int i) {
+    if (i < 0 || i >= pages_.size()) return;
+    current_ = i;
+    for (int k = 0; k < pages_.size(); ++k) pages_[k]->setVisible(k == i);
+    updateGeometry();
 }

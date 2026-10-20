@@ -9,7 +9,7 @@
 
 class Gauge;
 class QLabel;
-class QStackedWidget;
+class PanelStack;
 class SegmentedControl;
 class ProSlider;
 class RangeSlider;
@@ -50,7 +50,7 @@ private:
     QWidget *statusDot_ = nullptr;
     SparkWidget *spark_ = nullptr;
     SegmentedControl *modes_ = nullptr;
-    QStackedWidget *panels_ = nullptr;
+    PanelStack *panels_ = nullptr;
 
     ProSlider *manual_ = nullptr;
     QLabel *manualVal_ = nullptr;

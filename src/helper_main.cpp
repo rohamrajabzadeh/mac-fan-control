@@ -9,15 +9,24 @@
 // a deliberately small attack surface for a setuid binary.
 //
 // Usage:
+//   macfans-helper version                  prints the helper protocol version
 //   macfans-helper write <KEY> <hexbytes>   e.g. write F0Tg 44F0C800 (flt)
 //   macfans-helper mode  <KEY> <0|1>        e.g. mode F0Md 1
+//   macfans-helper watch <PID>              crash watchdog: waits for PID to
+//                                           exit, then hands every fan back to
+//                                           macOS (F*Md = 0) and exits
 #include "smc.h"
 
+#include <signal.h>
+#include <sys/event.h>
 #include <unistd.h>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+
+static const char *kHelperVersion = "3";
 
 static int parseHex(const std::string &hex, uint8_t *out, uint32_t cap) {
     if (hex.size() % 2 != 0) return -1;
@@ -32,14 +41,54 @@ static int parseHex(const std::string &hex, uint8_t *out, uint32_t cap) {
     return (int)n;
 }
 
+// Return every fan to automatic (system) control. Writes only F<n>Md keys.
+static void restoreAllFans() {
+    smc::Connection c;
+    if (!c.open()) return;
+    smc::Value v;
+    int n = c.read("FNum", v) ? (int)std::lround(v.toDouble()) : 0;
+    for (int i = 0; i < n && i < 16; ++i) {
+        char key[5];
+        snprintf(key, sizeof(key), "F%dMd", i);
+        uint8_t zero = 0;
+        c.write(key, &zero, 1);
+    }
+}
+
+// Block until `pid` exits (kqueue NOTE_EXIT), then restore automatic control.
+static int watchProcess(pid_t pid) {
+    if (pid <= 1) return 2;
+    setsid();                 // detach from the app's session / terminal
+    signal(SIGHUP, SIG_IGN);
+    int kq = kqueue();
+    if (kq < 0) return 7;
+    struct kevent ev;
+    EV_SET(&ev, pid, EVFILT_PROC, EV_ADD | EV_ENABLE | EV_ONESHOT, NOTE_EXIT, 0, nullptr);
+    if (kevent(kq, &ev, 1, nullptr, 0, nullptr) == 0) {
+        struct kevent out;
+        while (kevent(kq, nullptr, 0, &out, 1, nullptr) < 0) { /* EINTR: retry */ }
+    }
+    // Either it exited, or it was already gone when we started watching.
+    restoreAllFans();
+    close(kq);
+    return 0;
+}
+
 int main(int argc, char **argv) {
+    if (argc >= 2 && std::string(argv[1]) == "version") {
+        printf("%s\n", kHelperVersion);
+        return 0;
+    }
     // Adopt full root identity granted by the setuid bit.
     if (setuid(0) != 0 && geteuid() != 0) {
         fprintf(stderr, "macfans-helper: not privileged\n");
         return 10;
     }
+    if (argc == 3 && std::string(argv[1]) == "watch")
+        return watchProcess((pid_t)atoi(argv[2]));
+
     if (argc < 4) {
-        fprintf(stderr, "usage: macfans-helper write|mode <KEY> <arg>\n");
+        fprintf(stderr, "usage: macfans-helper version | watch <PID> | write|mode <KEY> <arg>\n");
         return 2;
     }
 

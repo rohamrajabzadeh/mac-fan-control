@@ -16,6 +16,10 @@ temperature range for you.
 
 ![History — temperatures, fan speed, CPU load, memory & swap](docs/history.png)
 
+| Thermal pressure, power, clocks & top processes | Power and clock-speed history |
+|---|---|
+| ![Thermal health](docs/dashboard-health.png) | ![Power history](docs/history-power.png) |
+
 ![Settings](docs/settings.png)
 
 ## Features
@@ -27,6 +31,16 @@ temperature range for you.
   row with a live sparkline. Right-click any sensor to show it on the gauge or in
   the menu bar.
 - **System overview** — CPU load (user / system), memory, swap and disk usage.
+- **Thermal health** — the system thermal pressure (Nominal / Moderate / Heavy /
+  Trapping — the same signal `powermetrics` reports) is always visible in the
+  header and the menu bar, so you can see at a glance whether your Mac is
+  actually being throttled.
+- **Power & clock speeds** — real package power in watts (CPU and GPU, from the
+  chip's energy counters) and the actual clock speed and activity of the
+  performance cores, efficiency cores and GPU, computed from per-core DVFS
+  residency and the chip's own frequency tables. No root needed.
+- **What's heating your Mac** — the top CPU consumers, with helper processes
+  folded into their app ("Chrome ×29"), app icons, and a two-step Quit.
 - **History tab** — smooth, hoverable charts of temperatures (toggle each group),
   fan speed, CPU load and memory & swap over 5 minutes, 15 minutes or an hour.
 
@@ -42,6 +56,17 @@ temperature range for you.
 Every temperature-driven mode has an explicit **"Based on"** picker: the hottest
 of CPU / GPU (default), the hottest sensor, or **any** group or individual sensor —
 e.g. make the fan follow the GPU only.
+
+### Alerts & safety
+- **Notifications** for high temperature (your sensor + threshold, with
+  hysteresis), sustained throttling, and fan failure (a fan that stops or can't
+  reach its target). Every alert is also kept in an in-app log.
+- **Emergency cooling** — in any mode, if a sensor reaches 95° or macOS reports
+  heavy thermal pressure, the fan is forced to maximum until things drop below
+  85°. Protects you from, say, a low fixed speed under a heavy load.
+- **Crash protection** — a detached root watchdog waits on MacFans' process;
+  if the app ever crashes or is force-quit, every fan is handed back to macOS
+  instead of staying stuck at a forced speed.
 
 ### Menu bar
 - A native status item showing the fan icon plus a **live temperature of the
@@ -67,6 +92,12 @@ configurable.
   cores, GPU, ANE, ISP, SOC, PMGR / PMU dies, NAND) through the HID event system
   (`IOHIDEventSystemClient`), plus a few SMC proximity keys. No privileges needed.
 - **System load** — Mach host statistics, `vm.swapusage`, `statfs`.
+- **Power, clocks, throttling** — IOReport "Energy Model" counters (energy
+  delta ÷ time), "CPU/GPU Performance States" residencies weighted by the pmgr
+  `voltage-states` frequency tables, and the
+  `com.apple.system.thermalpressurelevel` notification state.
+- **Processes** — `ps` (setuid on macOS, so it sees every process), grouped by
+  outermost `.app` bundle.
 - **Passwordless control** — writing fan keys needs root. One click on **Enable
   Control** installs a tiny setuid-root helper (`macfans-helper`, no Qt, writes
   **only** `F*` fan keys) to `/Library/Application Support/MacFans/` with a
@@ -123,6 +154,9 @@ Toggle **Launch at login** in Settings (or run `scripts/install-launchagent.sh`)
 src/smc.*            AppleSMC read/write and value encoding
 src/hidsensors.*     Apple HID thermal sensors
 src/sysmon.*         CPU, memory, swap and disk sampling
+src/powermon.*       power (W), clock speeds and thermal pressure via IOReport
+src/procmon.*        top CPU consumers grouped by app (+ procview.* list widget)
+src/alerts.*         notifications: temperature, throttling, fan failure, emergencies
 src/history.h        ring buffer feeding charts and sparklines
 src/fanmodel.*       sensor tree, history, control engine (Curve/Smart/Target)
 src/macnative.mm     AppKit bridge: SF Symbols, status item, popup panel, Dock policy
@@ -134,5 +168,5 @@ src/fancard.*        per-fan control card
 src/pages.*          Dashboard, History and Settings pages
 src/traypopup.*      menu-bar status item and popup
 src/mainwindow.*     window shell, tabs, permission flow
-src/helper_main.cpp  the setuid helper (fan keys only)
+src/helper_main.cpp  the setuid helper (fan keys only) + crash watchdog
 ```

@@ -159,7 +159,7 @@ void LineChart::leaveEvent(QEvent *) {
 void LineChart::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-    const QRectF plot(48, 10, width() - 48 - 14, height() - 10 - 28);
+    QRectF plot(48, 10, width() - 48 - 14, height() - 10 - 28);
     const QFont axisFont = Theme::font(10.5, QFont::Medium, true);
     p.setFont(axisFont);
 
@@ -209,6 +209,16 @@ void LineChart::paintEvent(QPaintEvent *) {
         if (ymax - ymin < step) ymax = ymin + step;
     }
     const double yspan = std::max(1e-6, ymax - ymin);
+    // Fit the left margin to the widest y-axis label (e.g. "3.0 GHz").
+    {
+        QFontMetricsF fm(axisFont);
+        const double st = niceStep(yspan, 4);
+        qreal wmax = 0;
+        for (double v = std::ceil(ymin / st) * st; v <= ymax + 1e-9; v += st)
+            wmax = std::max(wmax, fm.horizontalAdvance(fmt_(v)));
+        const qreal left = std::max<qreal>(40, wmax + 16);
+        plot = QRectF(left, 10, width() - left - 14, height() - 10 - 28);
+    }
     auto X = [&](qint64 t) { return plot.left() + double(t - t0) / (window_ * 1000.0) * plot.width(); };
     auto Y = [&](double v) { return plot.bottom() - (v - ymin) / yspan * plot.height(); };
 
@@ -233,6 +243,22 @@ void LineChart::paintEvent(QPaintEvent *) {
         QString lbl = k == 0 ? QStringLiteral("now") : QString("-%1m").arg(k * tstep / 60);
         p.setPen(Theme::textMuted());
         p.drawText(QRectF(x - 30, plot.bottom() + 6, 60, 16), Qt::AlignCenter, lbl);
+    }
+
+    // Throttling bands (thermal pressure > Nominal) behind the data.
+    if (!band_.isEmpty() && h_->has(band_)) {
+        p.save();
+        p.setPen(Qt::NoPen);
+        for (int i = start; i + 1 < h_->size(); ++i) {
+            float lv = h_->value(band_, i);
+            if (std::isnan(lv) || lv < 1) continue;
+            QColor c = lv >= 3 ? Theme::red() : lv >= 2 ? Theme::orange() : Theme::amber();
+            c.setAlphaF(lv >= 2 ? 0.16 : 0.10);
+            p.setBrush(c);
+            qreal x0 = X(h_->time(i)), x1 = X(h_->time(i + 1));
+            p.drawRect(QRectF(x0, plot.top(), std::max<qreal>(1, x1 - x0), plot.height()));
+        }
+        p.restore();
     }
 
     // Series.
@@ -289,6 +315,14 @@ void LineChart::paintEvent(QPaintEvent *) {
             p.drawEllipse(QPointF(x, Y(tv)), 3, 3);
             lines << d.s->label + "   " + fmt_(tv);
             colors << d.s->color;
+        }
+        if (!band_.isEmpty()) {
+            float lv = h_->value(band_, i);
+            if (!std::isnan(lv) && lv >= 1) {
+                static const char *names[] = {"Nominal", "Moderate", "Heavy", "Trapping", "Sleeping"};
+                lines << QString("Thermal pressure   %1").arg(names[std::clamp(int(lv), 0, 4)]);
+                colors << (lv >= 2 ? Theme::orange() : Theme::amber());
+            }
         }
         if (!lines.isEmpty()) {
             const QFont tf2 = Theme::font(11.5, QFont::DemiBold, true);
