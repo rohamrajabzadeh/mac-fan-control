@@ -4,6 +4,8 @@ A small, modern Qt6 fan-control & thermal monitor for macOS, built for personal
 use. It reads Apple SMC sensors and fans directly over IOKit and can drive each
 fan manually or with a temperature-based curve.
 
+![MacFans screenshot](docs/screenshot.png)
+
 Same mechanism as commercial tools like Macs Fan Control:
 
 ```
