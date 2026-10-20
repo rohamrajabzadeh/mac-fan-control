@@ -6,13 +6,17 @@ SMC and HID thermal sensors directly, and drives your fans with five control
 modes — from a simple fixed speed to an adaptive controller that holds a
 temperature range for you.
 
-![Dashboard](docs/dashboard.png)
+![Dashboard — Smart mode with the GPU group expanded](docs/dashboard.png)
 
-<p align="center">
-  <img src="docs/menubar.png" width="360" alt="Menu bar popup">
-</p>
+## Screenshots
 
-![History](docs/history.png)
+| Graphical fan curve | Menu-bar popup |
+|---|---|
+| ![Curve mode](docs/dashboard-curve.png) | <img src="docs/menubar.png" width="320" alt="Menu bar popup"> |
+
+![History — temperatures, fan speed, CPU load, memory & swap](docs/history.png)
+
+![Settings](docs/settings.png)
 
 ## Features
 
