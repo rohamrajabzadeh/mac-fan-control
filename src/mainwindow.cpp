@@ -6,6 +6,7 @@
 #include <QProcess>
 #include <QFile>
 #include <QFileInfo>
+#include <QSettings>
 #include <QWidget>
 #include <QLabel>
 #include <QSlider>
@@ -349,47 +350,75 @@ QWidget *MainWindow::buildTempPanel() {
     hottestGauge_->setFixedHeight(134);
     v->addWidget(hottestGauge_, 0, Qt::AlignHCenter);
 
-    // Compact two-column grid of sensor chips — fits many sensors without
-    // forcing the window to grow. Scrolls only if there are a great many.
+    // What the big gauge tracks: the hottest sensor, or a specific one.
+    gaugeSrcCombo_ = new QComboBox;
+    gaugeSrcCombo_->setObjectName("gaugeSrc");
+    gaugeSrcCombo_->addItem("Hottest sensor", "__hottest__");
+    for (const auto &s : model_->sensors())
+        gaugeSrcCombo_->addItem(s.label, s.key);
+    gaugeSrcCombo_->setMaximumWidth(240);
+    {
+        QSettings st;
+        QString saved = st.value("gaugeSource", "__hottest__").toString();
+        int idx = gaugeSrcCombo_->findData(saved);
+        if (idx >= 0) gaugeSrcCombo_->setCurrentIndex(idx);
+    }
+    connect(gaugeSrcCombo_, &QComboBox::currentIndexChanged, this, [this] {
+        QSettings st;
+        st.setValue("gaugeSource", gaugeSrcCombo_->currentData().toString());
+        refresh();
+    });
+    v->addWidget(gaugeSrcCombo_, 0, Qt::AlignHCenter);
+
+    // One clean row per sensor, all columns aligned.
     auto *scroll = new QScrollArea;
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setObjectName("tempScroll");
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    auto *gridWrap = new QWidget;
-    auto *grid = new QGridLayout(gridWrap);
-    grid->setContentsMargins(0, 2, 6, 0);
-    grid->setHorizontalSpacing(8);
-    grid->setVerticalSpacing(7);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    auto *listWrap = new QWidget;
+    auto *list = new QVBoxLayout(listWrap);
+    list->setContentsMargins(0, 2, 10, 0); // right margin reserves scrollbar space
+    list->setSpacing(7);
+
+    // Tabular figures so the digits line up vertically across rows.
+    QFont valFont;
+    valFont.setPointSizeF(13);
+    valFont.setWeight(QFont::DemiBold);
+    valFont.setFeature("tnum", 1);
 
     const auto &sensors = model_->sensors();
-    const int cols = 1;
-    for (int i = 0; i < sensors.size(); ++i) {
-        const auto &s = sensors[i];
+    for (const auto &s : sensors) {
         auto *chip = new QWidget;
         chip->setObjectName("tempRow");
+        chip->setFixedHeight(38);
         auto *rl = new QHBoxLayout(chip);
-        rl->setContentsMargins(9, 5, 10, 5);
-        rl->setSpacing(7);
-        rl->addWidget(iconLabel(sensorIconPath(s.iconKey), 16));
+        rl->setContentsMargins(11, 0, 13, 0);
+        rl->setSpacing(10);
+
+        auto *icon = iconLabel(sensorIconPath(s.iconKey), 18);
+        rl->addWidget(icon, 0, Qt::AlignVCenter);
+
         auto *nameL = new QLabel(s.label);
         nameL->setObjectName("tempName");
         nameL->setToolTip(s.memberKeys.join(", "));
-        nameL->setMinimumWidth(0);
+        nameL->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        rl->addWidget(nameL, 1);
+
         auto *valL = new QLabel;
         valL->setObjectName("tempVal");
+        valL->setFont(valFont);
+        valL->setFixedWidth(62);
         valL->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        valL->setMinimumWidth(48);
-        rl->addWidget(nameL, 1);
-        rl->addWidget(valL);
-        grid->addWidget(chip, i / cols, i % cols);
+        rl->addWidget(valL, 0, Qt::AlignVCenter);
+
+        list->addWidget(chip);
         tempNameLabels_.push_back(nameL);
         tempValueLabels_.push_back(valL);
     }
-    grid->setColumnStretch(0, 1);
-    grid->setColumnStretch(1, 1);
-    grid->setRowStretch(grid->rowCount(), 1);
-    scroll->setWidget(gridWrap);
+    list->addStretch();
+    scroll->setWidget(listWrap);
     v->addWidget(scroll, 1);
 
     if (sensors.isEmpty()) {
@@ -421,21 +450,29 @@ void MainWindow::refresh() {
     const auto &sensors = model_->sensors();
     for (int i = 0; i < sensors.size() && i < tempValueLabels_.size(); ++i) {
         double t = sensors[i].value;
-        QColor c = tempColor(t);
         tempValueLabels_[i]->setText(QString("%1°").arg(t, 0, 'f', 1));
         tempValueLabels_[i]->setStyleSheet(
-            QString("color:%1; font-weight:600;").arg(c.name()));
+            QString("color:%1;").arg(tempColor(t).name()));
     }
 
-    double mx = model_->maxTemp();
+    // Drive the big gauge from the chosen source (hottest, or a named sensor).
+    double gv = model_->maxTemp();
+    QString cap = "Hottest sensor";
+    if (gaugeSrcCombo_) {
+        QString key = gaugeSrcCombo_->currentData().toString();
+        if (key != "__hottest__") {
+            SensorInfo s = model_->sensorByKey(key);
+            if (!s.label.isEmpty()) { gv = s.value; cap = s.label; }
+        }
+    }
     if (hottestGauge_) {
-        hottestGauge_->setAccent(tempColor(mx));
-        hottestGauge_->setValue(mx);
+        hottestGauge_->setCaption(cap);
+        hottestGauge_->setAccent(tempColor(gv));
+        hottestGauge_->setValue(gv);
     }
 
-    if (tray_) {
-        tray_->setToolTip(QString("MacFans — hottest %1°C").arg(mx, 0, 'f', 0));
-    }
+    if (tray_)
+        tray_->setToolTip(QString("MacFans — %1 %2°C").arg(cap).arg(gv, 0, 'f', 0));
 }
 
 void MainWindow::updateStatusPill() {

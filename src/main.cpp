@@ -2,6 +2,7 @@
 #include <QFile>
 #include <QMessageBox>
 #include <QStyleFactory>
+#include <QTimer>
 
 #include "fanmodel.h"
 #include "mainwindow.h"
@@ -32,6 +33,15 @@ int main(int argc, char **argv) {
 
     MainWindow w(model);
     w.show();
+
+    // Dev helper: MACFANS_SHOT=<path> grabs the window to a PNG then quits.
+    if (qEnvironmentVariableIsSet("MACFANS_SHOT")) {
+        const QString path = qEnvironmentVariable("MACFANS_SHOT");
+        QTimer::singleShot(1800, [&w, path] {
+            w.grab().save(path);
+            qApp->quit();
+        });
+    }
 
     int rc = app.exec();
     model->restoreAllAuto(); // safety net on exit

@@ -52,6 +52,7 @@ private:
     QVector<QLabel *> tempValueLabels_;
     QVector<QLabel *> tempNameLabels_;
     Gauge *hottestGauge_ = nullptr;
+    QComboBox *gaugeSrcCombo_ = nullptr;
     QLabel *statusPill_ = nullptr;
     QPushButton *enableBtn_ = nullptr;
     QSystemTrayIcon *tray_ = nullptr;
