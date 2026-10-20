@@ -1,0 +1,13 @@
+# Build output
+build/
+*.o
+*.obj
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.user
+CMakeUserPresets.json

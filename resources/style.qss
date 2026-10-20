@@ -1,0 +1,152 @@
+/* MacFans — dark, minimal theme */
+
+QWidget {
+    background: #15171c;
+    color: #e6e9ef;
+    font-family: "SF Pro Display", "SF Pro Text", -apple-system, "Helvetica Neue";
+    font-size: 13px;
+}
+
+#header {
+    background: #1b1e25;
+    border-bottom: 1px solid #262a33;
+}
+
+#title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #f4f6fa;
+}
+#subtitle { color: #8b93a3; font-size: 12px; }
+
+#body { background: #15171c; }
+
+#card {
+    background: #1b1e25;
+    border: 1px solid #262a33;
+    border-radius: 16px;
+}
+
+#cardTitle {
+    font-size: 15px;
+    font-weight: 600;
+    color: #eef1f6;
+}
+
+#muted { color: #9aa2b1; font-size: 13px; line-height: 150%; }
+#rpmValue, #tempVal { font-weight: 600; color: #e6e9ef; }
+
+/* status pill + enable button */
+#pill {
+    padding: 5px 12px;
+    border-radius: 11px;
+    background: #22262f;
+    font-size: 12px;
+    font-weight: 600;
+}
+#enableBtn {
+    background: #4aa8ff;
+    color: #0c1116;
+    border: none;
+    border-radius: 11px;
+    padding: 7px 16px;
+    font-weight: 700;
+    margin-right: 10px;
+}
+#enableBtn:hover { background: #63b6ff; }
+
+/* segmented mode buttons */
+QPushButton[seg="true"] {
+    background: #22262f;
+    border: 1px solid #2d323d;
+    padding: 8px 0;
+    color: #b9c0cd;
+    font-weight: 600;
+}
+QPushButton[seg="true"]:first-child  { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
+QPushButton[seg="true"]:last-child   { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+QPushButton[seg="true"]:hover { background: #2a2f3a; }
+QPushButton[seg="true"]:checked {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #5bb4ff, stop:1 #3a95f0);
+    color: #0c1116;
+    border: 1px solid #4aa8ff;
+}
+QPushButton[smart="true"]:checked {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                stop:0 #7b6cff, stop:0.5 #9a7bff, stop:1 #57d0e6);
+    color: #0c1116;
+    border: 1px solid #8a7bff;
+}
+
+/* sliders */
+QSlider::groove:horizontal {
+    height: 5px;
+    background: #2c313c;
+    border-radius: 3px;
+}
+QSlider::sub-page:horizontal {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                stop:0 #2e7bd6, stop:0.5 #4aa8ff, stop:1 #73d0ff);
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #ffffff;
+    width: 16px;
+    height: 16px;
+    margin: -6px 0;
+    border-radius: 8px;
+}
+
+/* spin boxes + combo */
+QSpinBox, QComboBox {
+    background: #22262f;
+    border: 1px solid #2d323d;
+    border-radius: 8px;
+    padding: 5px 8px;
+    color: #e6e9ef;
+    min-height: 20px;
+}
+QComboBox::drop-down { border: none; width: 22px; }
+QComboBox QAbstractItemView {
+    background: #22262f;
+    border: 1px solid #333945;
+    selection-background-color: #4aa8ff;
+    selection-color: #0c1116;
+    outline: none;
+}
+QSpinBox::up-button, QSpinBox::down-button { width: 16px; background: #2a2f3a; }
+
+/* temperature chips (compact, 2-column grid) */
+#tempRow {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #23272f, stop:1 #1d2026);
+    border: 1px solid #2a2f39;
+    border-radius: 9px;
+}
+#tempRow:hover { background: #262b34; }
+#tempName { color: #c2c9d6; font-size: 12px; }
+#tempScroll { background: transparent; }
+#tempScroll QWidget { background: transparent; }
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 9px;
+    margin: 2px;
+}
+QScrollBar::handle:vertical {
+    background: #333945;
+    border-radius: 4px;
+    min-height: 30px;
+}
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+QLabel { background: transparent; }
+QToolTip {
+    background: #22262f;
+    color: #e6e9ef;
+    border: 1px solid #333945;
+    border-radius: 6px;
+    padding: 4px 6px;
+}
