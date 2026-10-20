@@ -86,23 +86,38 @@ void FanModel::discoverFans() {
     }
 }
 
-// Map a raw SMC temperature key to a human-readable group and a category icon.
-// On Apple Silicon temperatures are spread across many per-zone keys; we fold
-// them into a handful of meaningful groups (CPU = avg Tp/Te/Ts, GPU = avg Tg,
-// per the documented Apple Silicon convention) instead of showing 50 cryptic
-// FourCCs. Comparison is case-sensitive: the lower-case per-cluster families
-// (Tp, Te, Tg, Ts, Tc, Th, Tm, Ta) are the real zones; the upper-case
-// proximity/die keys (TCxx, THxx, TVxx …) fall into a single "System" group.
+// Map an Apple HID thermal sensor name (e.g. "pACC MTR Temp Sensor2") to a
+// friendly group label + category icon. Returns false to ignore the sensor.
+// Members are tagged "H:<name>" (HID) so tick() reads the right source.
+static bool groupForHid(const QString &name, QString &label, QString &icon) {
+    if (name.startsWith("pACC"))        { label = "CPU Performance Cores"; icon = "cpu"; }
+    else if (name.startsWith("eACC"))   { label = "CPU Efficiency Cores";  icon = "cpu"; }
+    else if (name.startsWith("GPU"))    { label = "GPU";                   icon = "gpu"; }
+    else if (name.startsWith("ANE"))    { label = "Neural Engine";         icon = "cpu"; }
+    else if (name.startsWith("ISP"))    { label = "Image Signal Processor"; icon = "cpu"; }
+    else if (name.startsWith("SOC MTR")) {
+        // SOC MTR Temp Sensor0/1/2 -> "SOC Sensor 1/2/3".
+        QString n = name.right(1);
+        bool ok = false; int idx = n.toInt(&ok);
+        label = ok ? QString("SOC Sensor %1").arg(idx + 1) : "SOC Sensor";
+        icon = "cpu";
+    }
+    else if (name.startsWith("PMGR SOC Die")) { label = "Power Manager SOC Die"; icon = "power"; }
+    else if (name.startsWith("PMU tdie") || name.startsWith("PMU2 tdie"))
+                                        { label = "Power Manager Die";     icon = "power"; }
+    else if (name.startsWith("NAND"))   { label = "NAND Storage";          icon = "storage"; }
+    else return false; // ignore calibration / tdev / misc noise
+    return true;
+}
+
+// Fallback grouping for Intel Macs (no HID thermal sensors) from SMC keys.
 static void groupForKey(const QString &key, QString &label, QString &icon) {
     const QString p = key.left(2);
-    if (p == "Tp")                 { label = "CPU Performance Cores"; icon = "cpu"; }
-    else if (p == "Te")            { label = "CPU Efficiency Cores";  icon = "cpu"; }
-    else if (p == "Tg" || p == "Tf") { label = "GPU";                icon = "gpu"; }
-    else if (p == "Tc")            { label = "CPU";                   icon = "cpu"; }
-    else if (p == "Ts" || p == "Th") { label = "SoC";                icon = "cpu"; }
-    else if (p == "Tm")            { label = "Memory";               icon = "ram"; }
-    else if (p == "Ta")            { label = "Ambient";              icon = "snow"; }
-    else                           { label = "System";               icon = "temp"; }
+    if (p == "TC")                 { label = "CPU";       icon = "cpu"; }
+    else if (p == "TG")            { label = "GPU";       icon = "gpu"; }
+    else if (p == "TM")            { label = "Memory";    icon = "ram"; }
+    else if (p == "Ta" || p == "TA") { label = "Ambient"; icon = "snow"; }
+    else                           { label = "System";    icon = "temp"; }
 }
 
 QString FanModel::friendlyName(const QString &key) {
@@ -113,39 +128,70 @@ QString FanModel::friendlyName(const QString &key) {
 
 void FanModel::discoverSensors() {
     sensors_.clear();
-    uint32_t count = smc_.keyCount();
-    if (count == 0 || count > 4096) return;
+    QHash<QString, SensorInfo> groups; // label -> aggregated entry
 
-    // Fixed display order (hottest/most relevant first).
-    const QStringList order = {"CPU Performance Cores", "CPU Efficiency Cores",
-                               "CPU", "GPU", "SoC", "Memory", "Ambient",
-                               "System"};
-    QHash<QString, SensorInfo> groups;
-
-    for (uint32_t i = 0; i < count; ++i) {
-        std::string k = smc_.keyAtIndex(i);
-        if (k.size() < 4) continue;
-        if (k[0] != 'T') continue;              // temperature keys start with T
-        smc::Value v;
-        if (!smc_.read(k, v)) continue;
-        QString type = QString::fromStdString(v.type).trimmed();
-        if (type != "flt" && type != "sp78" && type != "fp88") continue;
-        double val = v.toDouble();
-        if (val < 20.0 || val > 120.0) continue; // drop noise / non-temperature keys
-
-        QString key = QString::fromStdString(k), label, icon;
-        groupForKey(key, label, icon);
+    auto addMember = [&](const QString &label, const QString &icon,
+                         const QString &member) {
         SensorInfo &g = groups[label];
         g.key = label;
         g.label = label;
         g.iconKey = icon;
-        g.memberKeys.push_back(key);
+        g.memberKeys.push_back(member);
+    };
+
+    // --- Apple Silicon: rich named sensors from the HID thermal system. ---
+    QHash<QString, double> hid = hid_.readAll();
+    for (auto it = hid.constBegin(); it != hid.constEnd(); ++it) {
+        double v = it.value();
+        if (v < 5.0 || v > 120.0) continue; // skip bogus / calibration values
+        QString label, icon;
+        if (groupForHid(it.key(), label, icon))
+            addMember(label, icon, "H:" + it.key());
     }
 
+    // --- A few well-known SMC proximity sensors (same on AS + Intel). ---
+    struct Prox { const char *key; const char *label; const char *icon; };
+    static const Prox prox[] = {
+        {"TW0P", "Airport Proximity", "temp"},
+        {"TPSP", "Power Supply Proximity", "power"},
+        {"TH0x", "Heatpipe", "snow"},
+    };
+    for (const auto &p : prox) {
+        smc::Value v;
+        if (smc_.read(p.key, v) && v.toDouble() > 5 && v.toDouble() < 120)
+            addMember(p.label, p.icon, QString("S:") + p.key);
+    }
+
+    // --- Intel fallback: if HID gave nothing, group raw SMC T* keys. ---
+    if (hid.isEmpty()) {
+        uint32_t count = smc_.keyCount();
+        for (uint32_t i = 0; i < count && count <= 4096; ++i) {
+            std::string k = smc_.keyAtIndex(i);
+            if (k.size() < 4 || k[0] != 'T') continue;
+            smc::Value v;
+            if (!smc_.read(k, v)) continue;
+            QString type = QString::fromStdString(v.type).trimmed();
+            if (type != "flt" && type != "sp78" && type != "fp88") continue;
+            double val = v.toDouble();
+            if (val < 20.0 || val > 120.0) continue;
+            QString label, icon;
+            groupForKey(QString::fromStdString(k), label, icon);
+            addMember(label, icon, "S:" + QString::fromStdString(k));
+        }
+    }
+
+    // Fixed display order mirroring Macs Fan Control.
+    const QStringList order = {
+        "Airport Proximity", "CPU Efficiency Cores", "CPU Performance Cores",
+        "GPU", "Image Signal Processor", "Neural Engine",
+        "SOC Sensor 1", "SOC Sensor 2", "SOC Sensor 3",
+        "Power Manager Die", "Power Manager SOC Die", "Power Supply Proximity",
+        "Heatpipe", "NAND Storage",
+        // Intel-fallback labels:
+        "CPU", "Memory", "Ambient", "System"};
     for (const QString &name : order)
         if (groups.contains(name))
             sensors_.push_back(groups.take(name));
-    // Any unexpected groups appended after the known order.
     for (auto &g : groups)
         sensors_.push_back(g);
 }
@@ -293,11 +339,18 @@ void FanModel::tick() {
         if (smc_.read(keyFor("F%dTg", f.index).toStdString(), tg))
             f.target = tg.toDouble();
     }
+    QHash<QString, double> hid = hid_.readAll();
     for (auto &s : sensors_) {
         double sum = 0; int n = 0;
         for (const QString &mk : s.memberKeys) {
-            smc::Value v;
-            if (smc_.read(mk.toStdString(), v)) { sum += v.toDouble(); ++n; }
+            if (mk.startsWith("H:")) {
+                auto it = hid.constFind(mk.mid(2));
+                if (it != hid.constEnd()) { sum += it.value(); ++n; }
+            } else { // "S:<key>"
+                smc::Value v;
+                QString key = mk.startsWith("S:") ? mk.mid(2) : mk;
+                if (smc_.read(key.toStdString(), v)) { sum += v.toDouble(); ++n; }
+            }
         }
         if (n > 0) s.value = sum / n;
     }

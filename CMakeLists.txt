@@ -37,6 +37,8 @@ qt_add_executable(MacFans
     src/smc.h
     src/fanmodel.cpp
     src/fanmodel.h
+    src/hidsensors.cpp
+    src/hidsensors.h
     src/gauge.cpp
     src/gauge.h
     src/mainwindow.cpp

@@ -9,6 +9,7 @@
 #include <QTimer>
 
 #include "smc.h"
+#include "hidsensors.h"
 
 enum class FanMode { Auto, Manual, Curve, Smart };
 
@@ -105,6 +106,7 @@ private:
     static QString friendlyName(const QString &key);
 
     smc::Connection smc_;
+    HidThermal hid_;
     QVector<FanInfo> fans_;
     QVector<SensorInfo> sensors_;
     QTimer timer_;
