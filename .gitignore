@@ -11,3 +11,4 @@ build/
 .idea/
 *.user
 CMakeUserPresets.json
+*.zip
