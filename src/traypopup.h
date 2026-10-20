@@ -1,62 +1,93 @@
-// traypopup.h — a sleek macOS menu-bar dropdown for quick fan control.
-// Opens under the status-bar icon; lets you switch Auto / Smart / Custom and
-// drag a slider in Custom mode. Controls the primary fan (fan 0).
+// traypopup.h — menu-bar experience: a native status item (fan icon + live
+// temperature/RPM) and a floating, non-activating popup with quick controls.
 #pragma once
 
+#include <QElapsedTimer>
+#include <QObject>
+#include <QVector>
 #include <QWidget>
-#include <QColor>
-#include <QString>
+
+#include "macnative.h"
 
 class FanModel;
 class QLabel;
-class QSlider;
-class QPushButton;
+class QStackedWidget;
+class SegmentedControl;
+class ProSlider;
+class RangeSlider;
+class IconChip;
 
-// A compact labelled progress bar (CPU / Memory) drawn with QPainter.
+// Compact labelled bar (CPU / Memory / Swap / Disk).
 class MiniBar : public QWidget {
 public:
     explicit MiniBar(QWidget *parent = nullptr);
-    void set(const QString &label, double pct, const QColor &color);
-
+    void set(const QString &label, const QString &value, double pct, const QColor &a, const QColor &b);
 protected:
     void paintEvent(QPaintEvent *) override;
-
 private:
-    QString label_;
+    QString label_, value_;
     double pct_ = 0;
-    QColor color_{"#4aa8ff"};
+    QColor a_, b_;
 };
 
 class TrayPopup : public QWidget {
     Q_OBJECT
 public:
     explicit TrayPopup(FanModel *model, QWidget *parent = nullptr);
-
-    // Show the popup anchored just below the given global rect (the tray icon),
-    // or below the cursor if the rect is empty.
-    void popUpAt(const QRect &iconRect);
-
-    void refresh(); // pull live readings + reflect current mode
+    void popUpAt(const QRect &anchor);
+    void dismiss();
+    void refresh();
+    void syncConfig();
 
 signals:
-    void openWindowRequested();
+    void openWindowRequested(int tab);
     void quitRequested();
+    void dismissed();
 
 protected:
     void paintEvent(QPaintEvent *) override;
+    void keyPressEvent(QKeyEvent *) override;
 
 private:
-    void setMode(int mode);       // 0 Auto, 1 Smart, 2 Custom(manual)
-    void applyCustomRpm(int rpm);
+    void showModePanel(int mode);
+    void push();
 
-    FanModel *model_;
-    QLabel *fanRpm_ = nullptr;
-    QLabel *tempLabel_ = nullptr;
-    QLabel *rpmValue_ = nullptr;
-    MiniBar *cpuBar_ = nullptr;
-    MiniBar *ramBar_ = nullptr;
-    QPushButton *btnAuto_ = nullptr, *btnSmart_ = nullptr, *btnCustom_ = nullptr;
-    QWidget *sliderRow_ = nullptr;
-    QSlider *slider_ = nullptr;
+    FanModel *m_;
     bool syncing_ = false;
+    IconChip *chip_ = nullptr;
+    QLabel *modeLine_ = nullptr, *rpm_ = nullptr;
+    QVector<QLabel *> tempVals_;
+    QVector<QString> tempIds_;
+    MiniBar *cpu_, *mem_, *swap_, *disk_;
+    SegmentedControl *modes_ = nullptr;
+    QStackedWidget *panels_ = nullptr;
+    ProSlider *slider_ = nullptr;
+    QLabel *sliderVal_ = nullptr;
+    QLabel *curveLine_ = nullptr;
+    SegmentedControl *profiles_ = nullptr;
+    QLabel *smartLine_ = nullptr;
+    RangeSlider *range_ = nullptr;
+    QLabel *targetLine_ = nullptr;
+};
+
+class TrayController : public QObject {
+    Q_OBJECT
+public:
+    explicit TrayController(FanModel *model, QObject *parent = nullptr);
+    void updateStatusItem();
+    TrayPopup *popup() const { return popup_; }
+    void showPopupAt(const QRect &anchor);
+
+signals:
+    void openWindow(int tab);
+
+private:
+    void toggle(const QRect &anchor);
+    void hidePopup();
+
+    FanModel *m_;
+    MacNative::StatusItem item_;
+    TrayPopup *popup_;
+    MacNative::OutsideClickMonitor monitor_;
+    QElapsedTimer sinceHide_;
 };

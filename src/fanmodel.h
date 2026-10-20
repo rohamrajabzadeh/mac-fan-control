@@ -1,58 +1,76 @@
-// fanmodel.h — Sensor/fan discovery, live polling, and the control engine
-// (manual + temperature-driven auto curve). Pure Qt, no UI.
+// fanmodel.h — sensors (as a tree), fans, history and the control engine.
+// Pure Qt + IOKit; no UI.
 #pragma once
 
+#include <QElapsedTimer>
 #include <QObject>
+#include <QPointF>
 #include <QString>
 #include <QStringList>
-#include <QVector>
 #include <QTimer>
+#include <QVector>
 
-#include "smc.h"
 #include "hidsensors.h"
+#include "history.h"
+#include "smc.h"
 #include "sysmon.h"
 
-enum class FanMode { Auto, Manual, Curve, Smart };
+class QProcess;
 
-// A fan's user-chosen control settings. The curve is a simple, robust
-// two-point linear ramp: below tLow -> rpmLow, above tHigh -> rpmHigh, linear
-// in between. This covers "when temperature reaches X, raise the fan".
+enum class FanMode { Auto = 0, Manual = 1, Curve = 2, Smart = 3, Target = 4 };
+enum class SmartProfile { Quiet = 0, Balanced = 1, Cool = 2 };
+
+// Source ids accepted wherever a temperature drives the fan:
+//   "__auto__"    hottest of CPU and GPU (default)
+//   "__hottest__" hottest sensor of all
+//   any SensorNode::id, e.g. "gpu", "cpu/p", "soc/ane"
 struct FanControlConfig {
     FanMode mode = FanMode::Auto;
-    double manualRpm = 0;        // used in Manual mode
-    QString curveSensorKey;      // SMC key of the sensor driving the curve
-    double tLow = 45.0;          // °C
-    double tHigh = 85.0;         // °C
-    double rpmLow = 0.0;         // 0 => use fan minimum
-    double rpmHigh = 0.0;        // 0 => use fan maximum
+    double manualRpm = 0;
+    QString source = "__auto__";
+    QVector<QPointF> curve;                 // (°C, RPM), sorted by °C
+    SmartProfile smart = SmartProfile::Balanced;
+    double targetLow = 55, targetHigh = 70; // °C
 };
 
 struct FanInfo {
     int index = 0;
     QString name;
     double actual = 0, minRpm = 0, maxRpm = 0, target = 0;
-    QString targetType;          // SMC type of F%dTg (for encoding writes)
+    QString targetType;
     uint32_t targetSize = 0;
-    bool hasModeKey = false;     // whether F%dMd exists
-    uint32_t modeSize = 0;
+    bool hasModeKey = false;
     QString modeType;
+    uint32_t modeSize = 0;
     FanControlConfig cfg;
-    double appliedTarget = -1;   // last value we wrote (to avoid churn)
+
+    // Controller runtime state.
+    double commanded = -1;    // controller output (RPM), -1 when Auto
+    double appliedTarget = -1;
     FanMode appliedMode = FanMode::Auto;
     bool everApplied = false;
-    double smoothedTemp = 0;     // EMA used by Smart mode
+    double sourceTemp = 0;    // raw °C of the driving source
+    double ema = 0, emaPrev = 0, slope = 0; // smoothed °C and °C/s
+    double piErrPrev = 0;
+    QString status;           // human-readable controller status
 };
 
-// A displayed temperature entry. On Apple Silicon each entry is a *group* of
-// raw SMC keys (e.g. all Tp* performance-core sensors) shown as one averaged,
-// human-readable row. `key` is a stable group id, `memberKeys` the raw SMC
-// FourCCs it averages, `iconKey` selects a category icon.
-struct SensorInfo {
-    QString key;              // group id (also used as the stored curve key)
-    QString label;            // friendly label, e.g. "CPU Performance Cores"
-    QString iconKey;          // "cpu" | "gpu" | "ram" | "snow" | "power" | "temp"
+enum class Agg { Avg, Max };
+
+// One row of the temperature tree. Nodes are stored depth-first, so every
+// parent precedes its children.
+struct SensorNode {
+    QString id;          // "cpu", "cpu/p", "cpu/p/3"
+    QString label;       // "Performance Cores"
+    QString category;    // color key: cpu gpu soc power system storage
+    QString symbol;      // SF Symbol name
+    int parent = -1;
+    int depth = 0;
+    QVector<int> children;
+    QStringList members; // raw sources: "H:<hid name>" or "S:<smc key>"
+    Agg agg = Agg::Avg;
     double value = 0;
-    QStringList memberKeys;   // raw SMC keys averaged into this entry
+    bool valid = false;
 };
 
 class FanModel : public QObject {
@@ -61,40 +79,44 @@ public:
     explicit FanModel(QObject *parent = nullptr);
     ~FanModel() override;
 
-    bool init();                 // open SMC + discover
+    bool init();
     bool hasRoot() const { return hasRoot_; }
     bool smcOpen() const { return smcOpen_; }
-
-    // Writing fan keys is possible either because we run as root, or because
-    // the one-time setuid helper has been installed.
     bool controlEnabled() const { return hasRoot_ || helperInstalled(); }
     bool helperInstalled() const;
-    static QString helperPath();         // installed location
-    double smartTemp() const;            // sensor value Smart mode follows
+    static QString helperPath();
 
     const QVector<FanInfo> &fans() const { return fans_; }
-    const QVector<SensorInfo> &sensors() const { return sensors_; }
+    const QVector<SensorNode> &nodes() const { return nodes_; }
+    QVector<int> topLevelNodes() const;
+    int nodeIndex(const QString &id) const;
+    double nodeValue(const QString &id, bool *ok = nullptr) const;
+    double hottest() const;
+    QString hottestLabel() const;
 
-    double maxTemp() const;      // hottest sensor, for the tray summary
-    SensorInfo sensorByKey(const QString &key) const;
+    double sourceTemp(const QString &source) const;
+    QString sourceLabel(const QString &source) const;
+    QString sourceSymbol(const QString &source) const;
+
     const SysUsage &sysUsage() const { return sys_; }
+    const History &history() const { return history_; }
 
-    void setFanConfig(int fanIndex, const FanControlConfig &cfg);
-    FanControlConfig fanConfig(int fanIndex) const;
+    void setFanConfig(int fan, const FanControlConfig &cfg);
+    FanControlConfig fanConfig(int fan) const;
+    static QVector<QPointF> defaultCurve(double minRpm, double maxRpm);
 
     void setPollInterval(int ms);
+    int pollInterval() const { return pollMs_; }
     void start();
     void stop();
-
-    // Put every touched fan back to system/automatic control.
-    void restoreAllAuto();
+    void restoreAllAuto();   // synchronous; safe to call on quit
 
     void saveSettings();
     void loadSettings();
 
 signals:
-    void updated();              // new readings available
-    void rootStatusChanged(bool haveRoot);
+    void updated();
+    void configChanged(int fan);
 
 private slots:
     void tick();
@@ -102,19 +124,32 @@ private slots:
 private:
     void discoverFans();
     void discoverSensors();
-    void applyControl(FanInfo &f);
-    bool writeTarget(FanInfo &f, double rpm);
-    bool writeMode(FanInfo &f, bool manual);
-    static QString friendlyName(const QString &key);
+    void readSensors();
+    void recordHistory();
+    void track(FanInfo &f, double dt);
+    void applyControl(FanInfo &f, double dt);
+    bool writeTarget(FanInfo &f, double rpm, bool sync = false);
+    bool writeMode(FanInfo &f, bool manual, bool sync = false);
+    void enqueueHelper(const QStringList &args);
+    void pumpHelper();
+    int addNode(const QString &id, const QString &label, const QString &category,
+                const QString &symbol, int parent, Agg agg,
+                const QStringList &members = {});
 
     smc::Connection smc_;
     HidThermal hid_;
     SysMonitor sysmon_;
     SysUsage sys_;
+    History history_{3600};
     QVector<FanInfo> fans_;
-    QVector<SensorInfo> sensors_;
+    QVector<SensorNode> nodes_;
+    QStringList smcTempKeys_;
     QTimer timer_;
+    QElapsedTimer clock_;
     bool hasRoot_ = false;
     bool smcOpen_ = false;
-    int pollMs_ = 2000;
+    int pollMs_ = 1500;
+
+    QList<QStringList> helperQueue_;
+    QProcess *helperProc_ = nullptr;
 };

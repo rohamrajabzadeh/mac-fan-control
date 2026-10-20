@@ -1,185 +1,131 @@
-/* MacFans — dark, minimal theme */
+/* MacFans 2.0 — dark, layered, gradient-accented theme.
+   Most controls are custom-painted (see prowidgets.cpp); this sheet styles
+   surfaces, typography and the remaining standard widgets. */
 
 QWidget {
-    background: #15171c;
-    color: #e6e9ef;
-    font-family: "SF Pro Display", "SF Pro Text", -apple-system, "Helvetica Neue";
+    color: #eef1f6;
     font-size: 13px;
 }
 
+QMainWindow, #root { background: #121419; }
+
+/* ---------- header ---------- */
 #header {
-    background: #1b1e25;
-    border-bottom: 1px solid #262a33;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #191c23, stop:1 #15181e);
+    border-bottom: 1px solid #23272f;
 }
+#title { font-size: 19px; font-weight: 800; color: #f4f6fa; }
+#subtitle { font-size: 11.5px; color: #7f8899; }
 
-#title {
-    font-size: 22px;
-    font-weight: 700;
-    color: #f4f6fa;
-}
-#subtitle { color: #8b93a3; font-size: 12px; }
+/* ---------- pages ---------- */
+#page, #pageScroll, #pageScroll > QWidget > QWidget { background: #121419; }
+#pageTitle { font-size: 22px; font-weight: 800; color: #f4f6fa; }
+#pageSub { font-size: 12px; color: #7f8899; }
 
-#body { background: #15171c; }
-
+/* ---------- cards ---------- */
 #card {
-    background: #1b1e25;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1c1f27, stop:1 #181b22);
     border: 1px solid #262a33;
-    border-radius: 16px;
+    border-radius: 18px;
 }
-
-#cardTitle {
-    font-size: 15px;
-    font-weight: 600;
-    color: #eef1f6;
-}
-
-#muted { color: #9aa2b1; font-size: 13px; line-height: 150%; }
-#rpmValue, #tempVal { font-weight: 600; color: #e6e9ef; }
-
-/* status pill + enable button */
-#pill {
-    padding: 5px 12px;
-    border-radius: 11px;
-    background: #22262f;
-    font-size: 12px;
-    font-weight: 600;
-}
-#enableBtn {
-    background: #4aa8ff;
-    color: #0c1116;
-    border: none;
-    border-radius: 11px;
-    padding: 7px 16px;
-    font-weight: 700;
-    margin-right: 10px;
-}
-#enableBtn:hover { background: #63b6ff; }
-
-/* segmented mode buttons */
-QPushButton[seg="true"] {
-    background: #22262f;
-    border: 1px solid #2d323d;
-    padding: 8px 0;
-    color: #b9c0cd;
-    font-weight: 600;
-}
-QPushButton[seg="true"]:first-child  { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
-QPushButton[seg="true"]:last-child   { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
-QPushButton[seg="true"]:hover { background: #2a2f3a; }
-QPushButton[seg="true"]:checked {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #5bb4ff, stop:1 #3a95f0);
-    color: #0c1116;
-    border: 1px solid #4aa8ff;
-}
-QPushButton[smart="true"]:checked {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                stop:0 #7b6cff, stop:0.5 #9a7bff, stop:1 #57d0e6);
-    color: #0c1116;
-    border: 1px solid #8a7bff;
-}
-
-/* sliders */
-QSlider::groove:horizontal {
-    height: 5px;
-    background: #2c313c;
-    border-radius: 3px;
-}
-QSlider::sub-page:horizontal {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                stop:0 #2e7bd6, stop:0.5 #4aa8ff, stop:1 #73d0ff);
-    border-radius: 3px;
-}
-QSlider::handle:horizontal {
-    background: #ffffff;
-    width: 16px;
-    height: 16px;
-    margin: -6px 0;
-    border-radius: 8px;
-}
-
-/* spin boxes + combo */
-QSpinBox, QComboBox {
-    background: #22262f;
-    border: 1px solid #2d323d;
-    border-radius: 8px;
-    padding: 5px 8px;
-    color: #e6e9ef;
-    min-height: 20px;
-}
-QComboBox::drop-down { border: none; width: 22px; }
-QComboBox QAbstractItemView {
-    background: #22262f;
-    border: 1px solid #333945;
-    selection-background-color: #4aa8ff;
-    selection-color: #0c1116;
-    outline: none;
-}
-QSpinBox::up-button, QSpinBox::down-button { width: 16px; background: #2a2f3a; }
-
-/* menu-bar dropdown popup */
-#trayPopup { background: transparent; }
-#popupCard {
-    background: #1b1e25;
-    border: 1px solid #333945;
-    border-radius: 16px;
-}
-#popupDivider { background: #2a2f39; border: none; }
-#popupRpm { font-size: 17px; font-weight: 700; color: #f4f6fa; }
-#popupTemp { font-size: 12px; color: #9aa2b1; }
-#popupRpmVal { font-size: 12px; font-weight: 600; color: #c2c9d6; }
-#popupGhost {
-    background: #22262f;
-    border: 1px solid #2d323d;
-    border-radius: 9px;
-    padding: 7px 14px;
-    color: #c2c9d6;
-    font-weight: 600;
-}
-#popupGhost:hover { background: #2a2f3a; color: #eef1f6; }
-
-/* gauge source selector */
-#gaugeSrc {
-    background: #22262f;
-    border: 1px solid #2d323d;
-    border-radius: 9px;
-    padding: 5px 12px;
-    color: #c2c9d6;
-    font-size: 12px;
-    font-weight: 600;
-}
-#gaugeSrc:hover { border-color: #3a95f0; }
-
-/* temperature chips (compact, 2-column grid) */
-#tempRow {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #23272f, stop:1 #1d2026);
-    border: 1px solid #2a2f39;
-    border-radius: 9px;
-}
-#tempRow:hover { background: #262b34; }
-#tempName { color: #c2c9d6; font-size: 12px; }
-#tempScroll { background: transparent; }
-#tempScroll QWidget { background: transparent; }
-
-QScrollBar:vertical {
-    background: transparent;
-    width: 9px;
-    margin: 2px;
-}
-QScrollBar::handle:vertical {
-    background: #333945;
-    border-radius: 4px;
-    min-height: 30px;
-}
-QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
-QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+#cardTitle { font-size: 15px; font-weight: 700; color: #f1f3f7; background: transparent; }
+#cardSub { font-size: 11.5px; color: #7f8899; background: transparent; }
+#sectionTitle { font-size: 12px; font-weight: 800; color: #8b93a3; background: transparent; }
 
 QLabel { background: transparent; }
-QToolTip {
-    background: #22262f;
+
+#modeBadge {
+    color: white;
+    font-size: 10.5px;
+    font-weight: 800;
+    border-radius: 10px;
+    padding: 4px 11px;
+}
+
+#capLabel { font-size: 10px; font-weight: 800; color: #6e7686; }
+#bigValue { font-size: 26px; font-weight: 800; color: #f4f6fa; }
+#midValue { font-size: 13.5px; font-weight: 700; color: #d6dbe4; }
+#accentValue { font-size: 14px; font-weight: 800; color: #7cd4ff; }
+#rowLabel { font-size: 12.5px; font-weight: 600; color: #a3abba; }
+#panelText { font-size: 12.5px; color: #b3bac7; }
+#hintText { font-size: 11.5px; color: #6e7686; }
+#statusText { font-size: 12px; color: #a3abba; }
+
+#infoPanel {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid #262a33;
+    border-radius: 12px;
+}
+
+#banner {
+    background: rgba(245, 184, 74, 0.08);
+    border: 1px solid rgba(245, 184, 74, 0.35);
+    border-radius: 12px;
+}
+#bannerText { font-size: 12px; color: #f2d49b; }
+
+/* ---------- temperatures ---------- */
+#hotPill {
+    font-size: 11.5px;
+    font-weight: 700;
+    border-radius: 11px;
+    padding: 4px 11px;
+}
+#quickName { font-size: 12px; color: #a3abba; }
+#quickVal { font-size: 12px; font-weight: 800; }
+#treeScroll, #treeWrap { background: transparent; }
+#chartNow { font-size: 15px; font-weight: 800; }
+
+/* ---------- settings ---------- */
+#rowTitle { font-size: 13.5px; font-weight: 700; color: #eef1f6; }
+#rowDesc { font-size: 11.5px; color: #7f8899; }
+#divider { background: #23272f; border: none; }
+
+/* ---------- menu-bar popup ---------- */
+#trayPopup { background: transparent; }
+#popupCard {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1e2129, stop:1 #191c23);
+    border: 1px solid #30353f;
+    border-radius: 18px;
+}
+#popupTitle { font-size: 14.5px; font-weight: 800; color: #f4f6fa; }
+#popupSub { font-size: 11.5px; color: #8b93a3; }
+#popupRpm { color: #f4f6fa; }
+#popupTempName { font-size: 12px; color: #a3abba; }
+#popupTempVal { font-size: 12px; font-weight: 800; }
+#popupNote { font-size: 11.5px; color: #a3abba; }
+#popupAccent { font-size: 12.5px; font-weight: 800; color: #7cd4ff; }
+#popupDivider { background: #2a2f39; border: none; }
+
+/* ---------- scroll bars ---------- */
+QScrollArea { background: transparent; border: none; }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 4px 2px 4px 0; }
+QScrollBar::handle:vertical { background: #2f3440; border-radius: 4px; min-height: 36px; }
+QScrollBar::handle:vertical:hover { background: #3d4351; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+QScrollBar:horizontal { height: 0; }
+
+/* ---------- menus & tooltips ---------- */
+QMenu {
+    background: #1d2028;
+    border: 1px solid #30353f;
+    border-radius: 10px;
+    padding: 6px;
+}
+QMenu::item {
+    padding: 7px 26px 7px 12px;
+    border-radius: 7px;
     color: #e6e9ef;
-    border: 1px solid #333945;
-    border-radius: 6px;
-    padding: 4px 6px;
+}
+QMenu::item:selected { background: #3a6fd8; color: white; }
+QMenu::separator { height: 1px; background: #2a2f39; margin: 5px 8px; }
+QMenu::icon { padding-left: 8px; }
+
+QToolTip {
+    background: #1d2028;
+    color: #e6e9ef;
+    border: 1px solid #30353f;
+    border-radius: 7px;
+    padding: 5px 8px;
 }

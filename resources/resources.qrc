@@ -2,15 +2,6 @@
 <RCC version="1.0">
     <qresource prefix="/">
         <file alias="style.qss">style.qss</file>
-        <file alias="icons/cpu.png">icons/cpu.png</file>
-        <file alias="icons/ram.png">icons/ram.png</file>
-        <file alias="icons/gpu.png">icons/gpu.png</file>
-        <file alias="icons/temp.png">icons/temp.png</file>
-        <file alias="icons/fan.png">icons/fan.png</file>
-        <file alias="icons/fan_hero.png">icons/fan_hero.png</file>
-        <file alias="icons/snow.png">icons/snow.png</file>
-        <file alias="icons/power.png">icons/power.png</file>
-        <file alias="icons/storage.png">icons/storage.png</file>
         <file alias="icons/appicon.png">icons/appicon.png</file>
     </qresource>
 </RCC>

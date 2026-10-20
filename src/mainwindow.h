@@ -1,70 +1,47 @@
-// mainwindow.h — Main UI. Builds one control card per fan plus a live
-// temperature panel, and a menu-bar (tray) summary.
+// mainwindow.h — main window: header with tabs (Dashboard / History /
+// Settings), page stack, permission handling. Closing the window keeps the
+// app alive in the menu bar.
 #pragma once
 
 #include <QMainWindow>
-#include <QVector>
 
 class FanModel;
-class Gauge;
-class QLabel;
-class QSlider;
-class QComboBox;
-class QSpinBox;
-class QPushButton;
-class QWidget;
-class QSystemTrayIcon;
-class QGridLayout;
-class TrayPopup;
+class SegmentedControl;
+class QStackedWidget;
+class DashboardPage;
+class HistoryPage;
+class SettingsPage;
+class ProButton;
+class TrayController;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(FanModel *model, QWidget *parent = nullptr);
+    void showFromTray(int tab = -1);
+    void devCapture(const QString &dir);   // dev-only: screenshots of every page
 
-public:
-    void devCapturePopup(const QString &path); // dev-only screenshot helper
+protected:
+    void closeEvent(QCloseEvent *e) override;
+    bool eventFilter(QObject *o, QEvent *e) override;
 
 private slots:
     void refresh();
     void enableControl();
 
 private:
-    struct FanUi {
-        int index = 0;
-        Gauge *gauge = nullptr;
-        QLabel *info = nullptr;
-        QPushButton *btnAuto = nullptr, *btnManual = nullptr, *btnCurve = nullptr,
-                    *btnSmart = nullptr;
-        QWidget *manualPanel = nullptr, *curvePanel = nullptr, *smartPanel = nullptr;
-        QSlider *manualSlider = nullptr;
-        QLabel *manualValue = nullptr;
-        QComboBox *sensorCombo = nullptr;
-        QSpinBox *tLow = nullptr, *tHigh = nullptr, *rpmLow = nullptr, *rpmHigh = nullptr;
-    };
-
     QWidget *buildHeader();
-    QWidget *buildFanCard(int fanIndex);
-    QWidget *buildSystemCard();
-    QWidget *buildTempPanel();
-    void applyModeUi(FanUi &ui, int mode);
-    void pushConfig(int fanIndex);
+    void switchTab(int i, bool animate = true);
     void updateStatusPill();
-    void setupTray();
-    void syncFanCardUi();        // reflect model state in each fan card
+    void applySettings();
 
-    FanModel *model_;
-    bool syncingUi_ = false;     // guard to avoid feedback while syncing widgets
-    Gauge *cpuGauge_ = nullptr;
-    Gauge *ramGauge_ = nullptr;
-    QLabel *ramDetail_ = nullptr;
-    QVector<FanUi> fanUis_;
-    QVector<QLabel *> tempValueLabels_;
-    QVector<QLabel *> tempNameLabels_;
-    Gauge *hottestGauge_ = nullptr;
-    QComboBox *gaugeSrcCombo_ = nullptr;
-    QLabel *statusPill_ = nullptr;
-    QPushButton *enableBtn_ = nullptr;
-    QSystemTrayIcon *tray_ = nullptr;
-    TrayPopup *trayPopup_ = nullptr;
+    FanModel *m_;
+    bool quitting_ = false;
+    SegmentedControl *tabs_ = nullptr;
+    QStackedWidget *pages_ = nullptr;
+    DashboardPage *dash_ = nullptr;
+    HistoryPage *hist_ = nullptr;
+    SettingsPage *settings_ = nullptr;
+    ProButton *pill_ = nullptr;
+    TrayController *tray_ = nullptr;
 };

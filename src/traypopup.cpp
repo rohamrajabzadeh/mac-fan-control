@@ -1,288 +1,478 @@
 #include "traypopup.h"
+#include "appsettings.h"
+#include "fancard.h"
 #include "fanmodel.h"
+#include "macnative.h"
+#include "prowidgets.h"
+#include "theme.h"
 
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QSlider>
-#include <QPushButton>
-#include <QButtonGroup>
-#include <QFrame>
-#include <QPainter>
-#include <QPainterPath>
-#include <QPixmap>
-#include <QIcon>
-#include <QGuiApplication>
-#include <QScreen>
+#include <QApplication>
+#include <QDebug>
 #include <QCursor>
+#include <QFrame>
+#include <QGridLayout>
+#include <QGuiApplication>
+#include <QHBoxLayout>
+#include <QKeyEvent>
+#include <QLabel>
+#include <QPainter>
+#include <QParallelAnimationGroup>
+#include <QPropertyAnimation>
+#include <QScreen>
+#include <QStackedWidget>
+#include <QVBoxLayout>
+#include <cmath>
 
-static QColor popupTempColor(double t) {
-    if (t < 50) return QColor("#49c17a");
-    if (t < 65) return QColor("#d5b445");
-    if (t < 80) return QColor("#e0893f");
-    return QColor("#e05a4f");
-}
+static const int kPad = 16; // room for the drawn shadow
 
-// ---------------- MiniBar ----------------
-MiniBar::MiniBar(QWidget *parent) : QWidget(parent) { setFixedHeight(34); }
+// ================================================================ MiniBar
 
-void MiniBar::set(const QString &label, double pct, const QColor &color) {
+MiniBar::MiniBar(QWidget *parent) : QWidget(parent) { setFixedHeight(32); }
+
+void MiniBar::set(const QString &label, const QString &value, double pct, const QColor &a, const QColor &b) {
     label_ = label;
-    pct_ = qBound(0.0, pct, 100.0);
-    color_ = color;
+    value_ = value;
+    pct_ = std::clamp(pct, 0.0, 100.0);
+    a_ = a;
+    b_ = b;
     update();
 }
 
 void MiniBar::paintEvent(QPaintEvent *) {
     QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    const double w = width();
-
-    // Label + value line.
-    QFont f = font();
-    f.setPointSizeF(11.5);
-    f.setWeight(QFont::DemiBold);
-    p.setFont(f);
-    p.setPen(QColor(190, 197, 208));
-    p.drawText(QRectF(0, 0, w, 16), Qt::AlignLeft | Qt::AlignVCenter, label_);
-    p.setPen(color_);
-    p.drawText(QRectF(0, 0, w, 16), Qt::AlignRight | Qt::AlignVCenter,
-               QString("%1%").arg(qRound(pct_)));
-
-    // Track + gradient fill.
-    const double by = 22, bh = 6;
-    QRectF track(0, by, w, bh);
+    p.setRenderHint(QPainter::Antialiasing);
+    const qreal w = width();
+    p.setFont(Theme::font(11, QFont::DemiBold));
+    p.setPen(Theme::textDim());
+    p.drawText(QRectF(0, 0, w, 15), Qt::AlignLeft | Qt::AlignVCenter, label_);
+    p.setFont(Theme::font(11, QFont::Bold, true));
+    p.setPen(Theme::text());
+    p.drawText(QRectF(0, 0, w, 15), Qt::AlignRight | Qt::AlignVCenter, value_);
+    QRectF track(0, 21, w, 5);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(255, 255, 255, 28));
-    p.drawRoundedRect(track, bh / 2, bh / 2);
-    if (pct_ > 0.5) {
+    p.setBrush(Theme::track());
+    p.drawRoundedRect(track, 2.5, 2.5);
+    if (pct_ > 0.3) {
         QLinearGradient g(0, 0, w, 0);
-        g.setColorAt(0, color_.darker(120));
-        g.setColorAt(1, color_.lighter(135));
-        QRectF fill(0, by, w * pct_ / 100.0, bh);
+        g.setColorAt(0, a_);
+        g.setColorAt(1, b_);
         p.setBrush(g);
-        p.drawRoundedRect(fill, bh / 2, bh / 2);
+        p.drawRoundedRect(QRectF(0, 21, w * pct_ / 100.0, 5), 2.5, 2.5);
     }
 }
 
-// Margin around the card for the drawn drop shadow.
-static const int kPad = 14;
+// ================================================================ TrayPopup
+
+static QFrame *divider() {
+    auto *d = new QFrame;
+    d->setObjectName("popupDivider");
+    d->setFixedHeight(1);
+    return d;
+}
+
+static QLabel *small(const QString &t, const char *obj = "popupNote") {
+    auto *l = new QLabel(t);
+    l->setObjectName(obj);
+    l->setWordWrap(true);
+    return l;
+}
 
 TrayPopup::TrayPopup(FanModel *model, QWidget *parent)
-    : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint |
+    : QWidget(parent, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint |
                           Qt::NoDropShadowWindowHint),
-      model_(model) {
+      m_(model) {
     setAttribute(Qt::WA_TranslucentBackground);
+    setAttribute(Qt::WA_ShowWithoutActivating);
+    setAttribute(Qt::WA_MacAlwaysShowToolWindow);
     setObjectName("trayPopup");
-    setFixedWidth(272 + kPad * 2);
+    setFixedWidth(348 + kPad * 2);
 
     auto *outer = new QVBoxLayout(this);
-    outer->setContentsMargins(kPad, kPad, kPad, kPad);
+    outer->setContentsMargins(kPad, kPad - 4, kPad, kPad + 4);
+    auto *cardW = new QWidget;
+    cardW->setObjectName("popupCard");
+    outer->addWidget(cardW);
+    auto *v = new QVBoxLayout(cardW);
+    v->setContentsMargins(16, 15, 16, 14);
+    v->setSpacing(12);
 
-    auto *card = new QWidget;
-    card->setObjectName("popupCard");
-    outer->addWidget(card);
-    auto *v = new QVBoxLayout(card);
-    v->setContentsMargins(16, 15, 16, 15);
-    v->setSpacing(13);
-
-    // Header: fan icon + live RPM + hottest temp.
+    // Header
     auto *head = new QHBoxLayout;
     head->setSpacing(11);
-    auto *icon = new QLabel;
-    icon->setPixmap(QIcon(":/icons/fan.png").pixmap(34, 34));
-    icon->setFixedSize(34, 34);
-    icon->setScaledContents(true);
-    head->addWidget(icon);
-
-    auto *headText = new QVBoxLayout;
-    headText->setSpacing(1);
-    fanRpm_ = new QLabel("— RPM");
-    fanRpm_->setObjectName("popupRpm");
-    tempLabel_ = new QLabel("—");
-    tempLabel_->setObjectName("popupTemp");
-    headText->addWidget(fanRpm_);
-    headText->addWidget(tempLabel_);
-    head->addLayout(headText);
-    head->addStretch();
+    chip_ = new IconChip("fan.fill", Theme::blue(), 36);
+    chip_->setGradient(Theme::blue(), Theme::violet());
+    head->addWidget(chip_);
+    auto *hb = new QVBoxLayout;
+    hb->setSpacing(1);
+    auto *title = new QLabel("MacFans");
+    title->setObjectName("popupTitle");
+    modeLine_ = new QLabel;
+    modeLine_->setObjectName("popupSub");
+    hb->addWidget(title);
+    hb->addWidget(modeLine_);
+    head->addLayout(hb, 1);
+    rpm_ = new QLabel("—");
+    rpm_->setObjectName("popupRpm");
+    rpm_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    head->addWidget(rpm_);
     v->addLayout(head);
 
-    // CPU + Memory mini bars.
-    auto *divider1 = new QFrame;
-    divider1->setObjectName("popupDivider");
-    divider1->setFixedHeight(1);
-    v->addWidget(divider1);
-    cpuBar_ = new MiniBar;
-    ramBar_ = new MiniBar;
-    v->addWidget(cpuBar_);
-    v->addWidget(ramBar_);
+    v->addWidget(divider());
 
-    auto *divider2 = new QFrame;
-    divider2->setObjectName("popupDivider");
-    divider2->setFixedHeight(1);
-    v->addWidget(divider2);
-
-    // Mode segmented control.
-    auto *modeRow = new QHBoxLayout;
-    modeRow->setSpacing(0);
-    btnAuto_ = new QPushButton("Auto");
-    btnSmart_ = new QPushButton("Smart");
-    btnCustom_ = new QPushButton("Custom");
-    auto *grp = new QButtonGroup(this);
-    grp->setExclusive(true);
-    int id = 0;
-    for (auto *b : {btnAuto_, btnSmart_, btnCustom_}) {
-        b->setCheckable(true);
-        b->setCursor(Qt::PointingHandCursor);
-        b->setProperty("seg", true);
-        grp->addButton(b, id++);
-        modeRow->addWidget(b);
+    // Temperatures (top-level groups) in two columns
+    auto *temps = new QGridLayout;
+    temps->setHorizontalSpacing(14);
+    temps->setVerticalSpacing(6);
+    int k = 0;
+    for (int t : m_->topLevelNodes()) {
+        const SensorNode &n = m_->nodes()[t];
+        auto *cell = new QHBoxLayout;
+        cell->setSpacing(7);
+        auto *ic = new QLabel;
+        ic->setPixmap(MacNative::symbol(n.symbol, 13, Theme::categoryColor(n.category)));
+        cell->addWidget(ic);
+        auto *name = new QLabel(n.label);
+        name->setObjectName("popupTempName");
+        cell->addWidget(name);
+        cell->addStretch();
+        auto *val = new QLabel("—");
+        val->setObjectName("popupTempVal");
+        cell->addWidget(val);
+        temps->addLayout(cell, k / 2, k % 2);
+        tempVals_ << val;
+        tempIds_ << n.id;
+        ++k;
     }
-    v->addLayout(modeRow);
-    connect(grp, &QButtonGroup::idClicked, this, [this](int id) {
-        if (!syncing_) setMode(id);
+    v->addLayout(temps);
+
+    v->addWidget(divider());
+
+    // System bars
+    auto *sys = new QGridLayout;
+    sys->setHorizontalSpacing(16);
+    sys->setVerticalSpacing(6);
+    cpu_ = new MiniBar;
+    mem_ = new MiniBar;
+    swap_ = new MiniBar;
+    disk_ = new MiniBar;
+    sys->addWidget(cpu_, 0, 0);
+    sys->addWidget(mem_, 0, 1);
+    sys->addWidget(swap_, 1, 0);
+    sys->addWidget(disk_, 1, 1);
+    v->addLayout(sys);
+
+    v->addWidget(divider());
+
+    // Modes
+    modes_ = new SegmentedControl;
+    modes_->setCompact(true);
+    QVector<SegmentedControl::Item> items;
+    for (int i = 0; i < 5; ++i) {
+        ModeStyle st = modeStyle(FanMode(i));
+        items.push_back({st.name, QString(), st.name});
+    }
+    modes_->setItems(items);
+    for (int i = 0; i < 5; ++i) {
+        ModeStyle st = modeStyle(FanMode(i));
+        modes_->setItemGradient(i, st.a, st.b);
+    }
+    v->addWidget(modes_);
+
+    panels_ = new QStackedWidget;
+    // 0 Auto
+    panels_->addWidget(small("macOS is controlling the fan. Pick a mode to take over."));
+    // 1 Custom
+    {
+        auto *w = new QWidget;
+        auto *h = new QHBoxLayout(w);
+        h->setContentsMargins(0, 0, 0, 0);
+        h->setSpacing(10);
+        slider_ = new ProSlider;
+        slider_->setStep(50);
+        if (!m_->fans().isEmpty())
+            slider_->setRange(m_->fans().first().minRpm, m_->fans().first().maxRpm);
+        h->addWidget(slider_, 1);
+        sliderVal_ = new QLabel;
+        sliderVal_->setObjectName("popupAccent");
+        sliderVal_->setMinimumWidth(78);
+        sliderVal_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        h->addWidget(sliderVal_);
+        panels_->addWidget(w);
+        connect(slider_, &ProSlider::valueChanged, this, [this](double v) {
+            sliderVal_->setText(Theme::rpm(v));
+            if (!syncing_) push();
+        });
+    }
+    // 2 Curve
+    {
+        auto *w = new QWidget;
+        auto *h = new QHBoxLayout(w);
+        h->setContentsMargins(0, 0, 0, 0);
+        h->setSpacing(10);
+        curveLine_ = small(QString());
+        h->addWidget(curveLine_, 1);
+        auto *edit = new ProButton("Edit", "slider.horizontal.3", ProButton::Secondary);
+        edit->setFixedHeight(28);
+        connect(edit, &QAbstractButton::clicked, this, [this] { dismiss(); emit openWindowRequested(0); });
+        h->addWidget(edit);
+        panels_->addWidget(w);
+    }
+    // 3 Smart
+    {
+        auto *w = new QWidget;
+        auto *vb = new QVBoxLayout(w);
+        vb->setContentsMargins(0, 0, 0, 0);
+        vb->setSpacing(8);
+        profiles_ = new SegmentedControl;
+        profiles_->setCompact(true);
+        profiles_->setItems({{"Quiet", "moon.fill", ""}, {"Balanced", "dial.medium", ""}, {"Cool", "snowflake", ""}});
+        profiles_->setItemGradient(0, QColor(0x6b, 0x6f, 0xd8), Theme::violet());
+        profiles_->setItemGradient(1, Theme::violet(), Theme::pink());
+        profiles_->setItemGradient(2, Theme::cyan(), Theme::blue());
+        vb->addWidget(profiles_);
+        smartLine_ = small(QString());
+        vb->addWidget(smartLine_);
+        panels_->addWidget(w);
+        connect(profiles_, &SegmentedControl::currentChanged, this, [this](int) { if (!syncing_) push(); });
+    }
+    // 4 Target
+    {
+        auto *w = new QWidget;
+        auto *vb = new QVBoxLayout(w);
+        vb->setContentsMargins(0, 0, 0, 0);
+        vb->setSpacing(4);
+        range_ = new RangeSlider;
+        range_->setRange(30, 95);
+        range_->setFormatter([](double c) { return AppSettings::instance().formatTemp(c); });
+        vb->addWidget(range_);
+        targetLine_ = small(QString());
+        vb->addWidget(targetLine_);
+        panels_->addWidget(w);
+        connect(range_, &RangeSlider::rangeCommitted, this, [this](double, double) { if (!syncing_) push(); });
+    }
+    v->addWidget(panels_);
+
+    connect(modes_, &SegmentedControl::currentChanged, this, [this](int) {
+        if (!syncing_) push();
     });
 
-    // Custom slider row (hidden unless Custom is active).
-    sliderRow_ = new QWidget;
-    auto *sr = new QHBoxLayout(sliderRow_);
-    sr->setContentsMargins(0, 0, 0, 0);
-    sr->setSpacing(11);
-    slider_ = new QSlider(Qt::Horizontal);
-    rpmValue_ = new QLabel("—");
-    rpmValue_->setObjectName("popupRpmVal");
-    rpmValue_->setMinimumWidth(74);
-    rpmValue_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    sr->addWidget(slider_, 1);
-    sr->addWidget(rpmValue_);
-    v->addWidget(sliderRow_);
-    connect(slider_, &QSlider::valueChanged, this, [this](int val) {
-        rpmValue_->setText(QString("%1 RPM").arg(val));
-        if (!syncing_) applyCustomRpm(val);
-    });
+    v->addWidget(divider());
 
-    // Footer actions.
+    // Footer
     auto *foot = new QHBoxLayout;
-    foot->setSpacing(10);
-    auto *openBtn = new QPushButton("Open MacFans");
-    openBtn->setObjectName("popupGhost");
-    openBtn->setCursor(Qt::PointingHandCursor);
-    auto *quitBtn = new QPushButton("Quit");
-    quitBtn->setObjectName("popupGhost");
-    quitBtn->setCursor(Qt::PointingHandCursor);
-    foot->addWidget(openBtn);
+    foot->setSpacing(8);
+    auto *open = new ProButton("Open MacFans", "macwindow", ProButton::Secondary);
+    auto *settings = new ProButton(QString(), "gearshape.fill", ProButton::IconOnly);
+    settings->setToolTip("Settings");
+    auto *quit = new ProButton(QString(), "power", ProButton::IconOnly);
+    quit->setToolTip("Quit MacFans");
+    foot->addWidget(open);
     foot->addStretch();
-    foot->addWidget(quitBtn);
+    foot->addWidget(settings);
+    foot->addWidget(quit);
     v->addLayout(foot);
-    connect(openBtn, &QPushButton::clicked, this, [this] {
-        hide();
-        emit openWindowRequested();
-    });
-    connect(quitBtn, &QPushButton::clicked, this, [this] { emit quitRequested(); });
+    connect(open, &QAbstractButton::clicked, this, [this] { dismiss(); emit openWindowRequested(0); });
+    connect(settings, &QAbstractButton::clicked, this, [this] { dismiss(); emit openWindowRequested(2); });
+    connect(quit, &QAbstractButton::clicked, this, &TrayPopup::quitRequested);
 
-    // Configure the slider range from the fan.
-    if (!model_->fans().isEmpty()) {
-        const FanInfo &f = model_->fans().first();
-        slider_->setRange(int(f.minRpm > 0 ? f.minRpm : 0),
-                          int(f.maxRpm > 0 ? f.maxRpm : 6000));
-    }
-}
-
-void TrayPopup::setMode(int id) {
-    if (model_->fans().isEmpty()) return;
-    FanControlConfig c = model_->fanConfig(0);
-    if (id == 0) c.mode = FanMode::Auto;
-    else if (id == 1) c.mode = FanMode::Smart;
-    else { c.mode = FanMode::Manual; c.manualRpm = slider_->value(); }
-    model_->setFanConfig(0, c);
-    sliderRow_->setVisible(id == 2);
-    adjustSize();
+    syncConfig();
     refresh();
+    winId(); // create the native panel now so it can be configured
+    MacNative::configurePopupPanel(this);
 }
 
-void TrayPopup::applyCustomRpm(int rpm) {
-    if (model_->fans().isEmpty()) return;
-    FanControlConfig c = model_->fanConfig(0);
-    c.mode = FanMode::Manual;
-    c.manualRpm = rpm;
-    model_->setFanConfig(0, c);
+void TrayPopup::push() {
+    if (m_->fans().isEmpty()) return;
+    FanControlConfig c = m_->fanConfig(0);
+    c.mode = FanMode(modes_->currentIndex());
+    if (c.mode == FanMode::Manual) c.manualRpm = slider_->value();
+    c.smart = SmartProfile(profiles_->currentIndex());
+    c.targetLow = range_->low();
+    c.targetHigh = range_->high();
+    m_->setFanConfig(0, c);
 }
 
-void TrayPopup::refresh() {
-    if (model_->fans().isEmpty()) return;
-    const FanInfo &f = model_->fans().first();
-    fanRpm_->setText(QString("%1 RPM").arg(qRound(f.actual)));
-
-    double t = model_->maxTemp();
-    tempLabel_->setText(QString("Hottest  %1°C").arg(t, 0, 'f', 0));
-    tempLabel_->setStyleSheet(QString("color:%1;").arg(popupTempColor(t).name()));
-
-    const SysUsage &su = model_->sysUsage();
-    if (cpuBar_)
-        cpuBar_->set("CPU", su.cpu,
-                     su.cpu < 60 ? QColor("#4aa8ff")
-                     : su.cpu < 85 ? QColor("#e0893f") : QColor("#e05a4f"));
-    if (ramBar_)
-        ramBar_->set(QString("Memory  %1/%2 GB")
-                         .arg(su.memUsedGB, 0, 'f', 1).arg(su.memTotalGB, 0, 'f', 0),
-                     su.memPercent,
-                     su.memPercent < 80 ? QColor("#9a7bff") : QColor("#e05a4f"));
-
-    syncing_ = true;
-    int id = f.cfg.mode == FanMode::Auto ? 0
-             : f.cfg.mode == FanMode::Smart ? 1
-             : f.cfg.mode == FanMode::Manual ? 2 : -1;
-    if (id == 0) btnAuto_->setChecked(true);
-    else if (id == 1) btnSmart_->setChecked(true);
-    else if (id == 2) btnCustom_->setChecked(true);
-    else { // Curve mode set elsewhere — none of the three is checked
-        btnAuto_->setChecked(false);
-        btnSmart_->setChecked(false);
-        btnCustom_->setChecked(false);
+void TrayPopup::showModePanel(int mode) {
+    for (int i = 0; i < panels_->count(); ++i)
+        panels_->widget(i)->setSizePolicy(i == mode ? QSizePolicy::Preferred : QSizePolicy::Ignored,
+                                          i == mode ? QSizePolicy::Preferred : QSizePolicy::Ignored);
+    panels_->setCurrentIndex(mode);
+    panels_->adjustSize();
+    if (isVisible()) {
+        // Keep the top edge anchored while the height changes.
+        QPoint tl = pos();
+        adjustSize();
+        move(tl);
     }
-    sliderRow_->setVisible(id == 2);
-    if (id == 2 && !slider_->isSliderDown())
-        slider_->setValue(int(f.cfg.manualRpm > 0 ? f.cfg.manualRpm : f.actual));
-    rpmValue_->setText(QString("%1 RPM").arg(slider_->value()));
+}
+
+void TrayPopup::syncConfig() {
+    if (m_->fans().isEmpty()) return;
+    const FanInfo &f = m_->fans().first();
+    syncing_ = true;
+    const int mode = int(f.cfg.mode);
+    if (modes_->currentIndex() != mode) modes_->setCurrentIndex(mode, isVisible());
+    showModePanel(mode);
+    if (!slider_->isDragging()) {
+        slider_->setValue(f.cfg.manualRpm > 0 ? f.cfg.manualRpm : f.actual);
+        sliderVal_->setText(Theme::rpm(slider_->value()));
+    }
+    profiles_->setCurrentIndex(int(f.cfg.smart), isVisible());
+    range_->setValues(f.cfg.targetLow, f.cfg.targetHigh);
+    ModeStyle st = modeStyle(f.cfg.mode);
+    chip_->set(st.symbol, st.a);
+    chip_->setGradient(st.a, st.b);
     syncing_ = false;
 }
 
-void TrayPopup::popUpAt(const QRect &iconRect) {
+void TrayPopup::refresh() {
+    const AppSettings &as = AppSettings::instance();
+    if (!m_->fans().isEmpty()) {
+        const FanInfo &f = m_->fans().first();
+        rpm_->setText(QString("<span style='font-size:20px;font-weight:700;'>%1</span>"
+                              "<span style='font-size:11px;color:#8b93a3;'>&nbsp;RPM</span>")
+                          .arg(Theme::thousands(f.actual)));
+        QString line = modeStyle(f.cfg.mode).name;
+        if (f.cfg.mode == FanMode::Smart) {
+            static const char *n[] = {"Quiet", "Balanced", "Cool"};
+            line += QString(" · %1").arg(n[int(f.cfg.smart)]);
+        }
+        if (f.cfg.mode != FanMode::Auto && f.cfg.mode != FanMode::Manual)
+            line += QString(" · %1").arg(m_->sourceLabel(f.cfg.source));
+        modeLine_->setText(line);
+        curveLine_->setText(f.status);
+        smartLine_->setText(f.status);
+        targetLine_->setText(f.status);
+        range_->setMarker(f.ema > 0 ? f.ema : f.sourceTemp, true);
+        slider_->setMarker(f.actual, true);
+    }
+    for (int i = 0; i < tempIds_.size(); ++i) {
+        bool ok = false;
+        double v = m_->nodeValue(tempIds_[i], &ok);
+        tempVals_[i]->setText(ok ? as.formatTemp(v) : QStringLiteral("—"));
+        Theme::setLabelColor(tempVals_[i], Theme::tempColor(v));
+    }
+    const SysUsage &su = m_->sysUsage();
+    cpu_->set("CPU", QString("%1%").arg(qRound(su.cpu)), su.cpu, Theme::blue(), Theme::blueLight());
+    mem_->set("Memory", QString("%1 / %2 GB").arg(su.memUsedGB, 0, 'f', 1).arg(su.memTotalGB, 0, 'f', 0),
+              su.memPercent, Theme::violet(), Theme::violetLight());
+    swap_->set("Swap", QString("%1 GB").arg(su.swapUsedGB, 0, 'f', 2), su.swapPercent, Theme::amber(), Theme::orange());
+    disk_->set("Disk", QString("%1%").arg(qRound(su.diskPercent)), su.diskPercent, Theme::cyan(), Theme::blue());
+}
+
+void TrayPopup::popUpAt(const QRect &anchor) {
+    syncConfig();
     refresh();
     adjustSize();
-    QSize s = sizeHint();
-    QPoint pos;
-    if (!iconRect.isEmpty()) {
-        pos = QPoint(iconRect.center().x() - s.width() / 2,
-                     iconRect.bottom() - kPad + 2);
-    } else {
-        QPoint c = QCursor::pos();
-        pos = QPoint(c.x() - s.width() / 2, c.y() + 4);
-    }
-    // Keep on-screen.
-    QScreen *scr = QGuiApplication::screenAt(QCursor::pos());
+    const QSize s = size();
+    QPoint pos = anchor.isEmpty() ? QCursor::pos() - QPoint(s.width() / 2, -4)
+                                  : QPoint(anchor.center().x() - s.width() / 2, anchor.bottom() + 2 - (kPad - 4));
+    QScreen *scr = QGuiApplication::screenAt(anchor.isEmpty() ? QCursor::pos() : anchor.center());
     if (!scr) scr = QGuiApplication::primaryScreen();
     if (scr) {
         QRect g = scr->availableGeometry();
-        int x = qBound(g.left() + 4, pos.x(), g.right() - s.width() - 4);
-        pos.setX(x);
+        pos.setX(std::clamp(pos.x(), g.left() - kPad + 6, g.right() - s.width() + kPad - 6));
     }
-    move(pos);
+
+    // Fade + slide in.
+    setWindowOpacity(0.0);
+    move(pos - QPoint(0, 8));
     show();
+    MacNative::configurePopupPanel(this);
     raise();
-    activateWindow();
+    auto *group = new QParallelAnimationGroup(this);
+    auto *fade = new QPropertyAnimation(this, "windowOpacity");
+    fade->setDuration(170);
+    fade->setStartValue(0.0);
+    fade->setEndValue(1.0);
+    auto *slide = new QPropertyAnimation(this, "pos");
+    slide->setDuration(220);
+    slide->setStartValue(pos - QPoint(0, 8));
+    slide->setEndValue(pos);
+    slide->setEasingCurve(QEasingCurve::OutCubic);
+    group->addAnimation(fade);
+    group->addAnimation(slide);
+    group->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void TrayPopup::dismiss() {
+    if (!isVisible()) return;
+    hide();
+    emit dismissed();
+}
+
+void TrayPopup::keyPressEvent(QKeyEvent *e) {
+    if (e->key() == Qt::Key_Escape) dismiss();
+    else QWidget::keyPressEvent(e);
 }
 
 void TrayPopup::paintEvent(QPaintEvent *) {
-    // Soft drop shadow behind the rounded card.
+    // Soft layered drop shadow behind the card.
     QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    QRectF card = rect().adjusted(kPad, kPad, -kPad, -kPad);
+    p.setRenderHint(QPainter::Antialiasing);
+    QRectF card = QRectF(rect()).adjusted(kPad, kPad - 4, -kPad, -kPad - 4);
+    p.setPen(Qt::NoPen);
     for (int i = kPad; i > 0; --i) {
-        QColor sh(0, 0, 0, 7);
-        p.setPen(Qt::NoPen);
-        p.setBrush(sh);
-        QRectF r = card.adjusted(-i, -i + 2, i, i + 2);
-        p.drawRoundedRect(r, 16 + i, 16 + i);
+        p.setBrush(QColor(0, 0, 0, int(3 + (kPad - i) * 0.9)));
+        p.drawRoundedRect(card.adjusted(-i, -i + 4, i, i + 4), 18 + i, 18 + i);
     }
+}
+
+// ================================================================ TrayController
+
+TrayController::TrayController(FanModel *model, QObject *parent) : QObject(parent), m_(model) {
+    item_.setSymbol("fan");
+    popup_ = new TrayPopup(model);
+    item_.onClick = [this](QRect r) { toggle(r); };
+
+    connect(popup_, &TrayPopup::openWindowRequested, this, &TrayController::openWindow);
+    connect(popup_, &TrayPopup::quitRequested, qApp, &QApplication::quit);
+    connect(popup_, &TrayPopup::dismissed, this, [this] {
+        monitor_.stop();
+        item_.setHighlighted(false);
+        sinceHide_.start();
+    });
+    connect(model, &FanModel::updated, this, [this] {
+        updateStatusItem();
+        if (popup_->isVisible()) popup_->refresh();
+    });
+    connect(model, &FanModel::configChanged, this, [this](int) { popup_->syncConfig(); });
+    connect(&AppSettings::instance(), &AppSettings::changed, this, [this] {
+        updateStatusItem();
+        popup_->refresh();
+    });
+    updateStatusItem();
+}
+
+void TrayController::toggle(const QRect &anchor) {
+    if (popup_->isVisible()) {
+        popup_->dismiss();
+        return;
+    }
+    // A click on the item that just dismissed the popup should not reopen it.
+    if (sinceHide_.isValid() && sinceHide_.elapsed() < 200) return;
+    showPopupAt(anchor);
+}
+
+void TrayController::showPopupAt(const QRect &anchor) {
+    popup_->popUpAt(anchor);
+    item_.setHighlighted(true);
+    monitor_.start(popup_, &item_, [this] { popup_->dismiss(); });
+}
+
+void TrayController::hidePopup() { popup_->dismiss(); }
+
+void TrayController::updateStatusItem() {
+    const AppSettings &as = AppSettings::instance();
+    QStringList parts;
+    const QString src = as.menuBarSource();
+    const double t = m_->sourceTemp(src);
+    if (as.menuBarShowTemp() && t > 0) parts << as.formatTemp(t);
+    double rpm = m_->fans().isEmpty() ? 0 : m_->fans().first().actual;
+    if (as.menuBarShowRpm() && rpm > 0) parts << Theme::rpmCompact(rpm);
+    item_.setTitle(parts.join(QString::fromUtf8(" · ")));
+    item_.setToolTip(QString("MacFans — %1 %2 · Fan %3")
+                         .arg(m_->sourceLabel(src), as.formatTemp(t), Theme::rpm(rpm)));
+    if (qEnvironmentVariableIsSet("MACFANS_DEBUG"))
+        qInfo() << "status item" << item_.buttonRect() << parts.join(" · ");
 }
