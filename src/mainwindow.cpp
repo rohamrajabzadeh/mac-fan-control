@@ -82,6 +82,7 @@ MainWindow::MainWindow(FanModel *model, QWidget *parent)
         none->setObjectName("muted");
         fansCol->addWidget(none);
     }
+    fansCol->addWidget(buildSystemCard());
     fansCol->addStretch();
 
     auto *fansWrap = new QWidget;
@@ -265,8 +266,11 @@ QWidget *MainWindow::buildFanCard(int fanIndex) {
     fanUis_.push_back(ui);
     FanUi &stored = fanUis_.last();
 
-    // Wire interactions.
+    // Wire interactions. syncingUi_ guards against feedback when we update
+    // these widgets programmatically to mirror a change made elsewhere
+    // (e.g. from the menu-bar popup).
     connect(group, &QButtonGroup::idClicked, this, [this, fanIndex](int id) {
+        if (syncingUi_) return;
         for (auto &u : fanUis_)
             if (u.index == fanIndex) { applyModeUi(u, id); break; }
         pushConfig(fanIndex);
@@ -278,9 +282,11 @@ QWidget *MainWindow::buildFanCard(int fanIndex) {
                         u.manualValue->setText(QString("%1 RPM").arg(val));
                         break;
                     }
-                pushConfig(fanIndex);
+                if (!syncingUi_) pushConfig(fanIndex);
             });
-    auto spinChanged = [this, fanIndex]() { pushConfig(fanIndex); };
+    auto spinChanged = [this, fanIndex]() {
+        if (!syncingUi_) pushConfig(fanIndex);
+    };
     connect(stored.sensorCombo, &QComboBox::currentIndexChanged, this, spinChanged);
     connect(stored.tLow, &QSpinBox::valueChanged, this, spinChanged);
     connect(stored.tHigh, &QSpinBox::valueChanged, this, spinChanged);
@@ -293,6 +299,26 @@ QWidget *MainWindow::buildFanCard(int fanIndex) {
     applyModeUi(stored, mode);
 
     return card;
+}
+
+// Make every fan card mirror the model's current config (so a change from the
+// menu-bar popup is reflected live, and vice versa).
+void MainWindow::syncFanCardUi() {
+    const auto &fans = model_->fans();
+    syncingUi_ = true;
+    for (auto &ui : fanUis_) {
+        if (ui.index >= fans.size()) continue;
+        const FanInfo &f = fans[ui.index];
+        int mode = (int)f.cfg.mode; // 0 Auto,1 Manual,2 Curve,3 Smart
+        QPushButton *btns[4] = {ui.btnAuto, ui.btnManual, ui.btnCurve, ui.btnSmart};
+        if (mode >= 0 && mode < 4 && !btns[mode]->isChecked())
+            btns[mode]->setChecked(true);
+        applyModeUi(ui, mode);
+        if (mode == 1 && !ui.manualSlider->isSliderDown() &&
+            ui.manualSlider->value() != qRound(f.cfg.manualRpm))
+            ui.manualSlider->setValue(qRound(f.cfg.manualRpm));
+    }
+    syncingUi_ = false;
 }
 
 void MainWindow::applyModeUi(FanUi &ui, int mode) {
@@ -326,6 +352,55 @@ void MainWindow::pushConfig(int fanIndex) {
         statusPill_->setStyleSheet("color:#d5b445;");
     }
     model_->setFanConfig(fanIndex, c);
+}
+
+QWidget *MainWindow::buildSystemCard() {
+    auto *card = new QFrame;
+    card->setObjectName("card");
+    auto *v = new QVBoxLayout(card);
+    v->setContentsMargins(18, 16, 18, 16);
+    v->setSpacing(12);
+
+    auto *titleRow = new QHBoxLayout;
+    titleRow->setSpacing(8);
+    titleRow->addWidget(iconLabel(":/icons/cpu.png", 22));
+    auto *title = new QLabel("System");
+    title->setObjectName("cardTitle");
+    titleRow->addWidget(title);
+    titleRow->addStretch();
+    v->addLayout(titleRow);
+
+    auto *gauges = new QHBoxLayout;
+    gauges->setSpacing(14);
+
+    auto *cpuCol = new QVBoxLayout;
+    cpuCol->setSpacing(2);
+    cpuGauge_ = new Gauge;
+    cpuGauge_->setUnit("%");
+    cpuGauge_->setCaption("CPU");
+    cpuGauge_->setRange(0, 100);
+    cpuGauge_->setAccent(QColor("#4aa8ff"));
+    cpuGauge_->setFixedSize(136, 136);
+    cpuCol->addWidget(cpuGauge_, 0, Qt::AlignHCenter);
+    gauges->addLayout(cpuCol);
+
+    auto *ramCol = new QVBoxLayout;
+    ramCol->setSpacing(2);
+    ramGauge_ = new Gauge;
+    ramGauge_->setUnit("%");
+    ramGauge_->setCaption("Memory");
+    ramGauge_->setRange(0, 100);
+    ramGauge_->setAccent(QColor("#9a7bff"));
+    ramGauge_->setFixedSize(136, 136);
+    ramCol->addWidget(ramGauge_, 0, Qt::AlignHCenter);
+    ramDetail_ = new QLabel("—");
+    ramDetail_->setObjectName("muted");
+    ramDetail_->setAlignment(Qt::AlignHCenter);
+    ramCol->addWidget(ramDetail_);
+    gauges->addLayout(ramCol);
+
+    v->addLayout(gauges);
+    return card;
 }
 
 QWidget *MainWindow::buildTempPanel() {
@@ -432,6 +507,8 @@ QWidget *MainWindow::buildTempPanel() {
 }
 
 void MainWindow::refresh() {
+    syncFanCardUi(); // keep mode buttons/panels in sync with the model
+
     const auto &fans = model_->fans();
     for (auto &ui : fanUis_) {
         if (ui.index >= fans.size()) continue;
@@ -472,6 +549,23 @@ void MainWindow::refresh() {
         hottestGauge_->setAccent(tempColor(gv));
         hottestGauge_->setValue(gv);
     }
+
+    // System load.
+    const SysUsage &su = model_->sysUsage();
+    if (cpuGauge_) {
+        cpuGauge_->setAccent(su.cpu < 60 ? QColor("#4aa8ff")
+                             : su.cpu < 85 ? QColor("#e0893f") : QColor("#e05a4f"));
+        cpuGauge_->setValue(su.cpu);
+    }
+    if (ramGauge_) {
+        ramGauge_->setAccent(su.memPercent < 75 ? QColor("#9a7bff")
+                             : su.memPercent < 90 ? QColor("#e0893f") : QColor("#e05a4f"));
+        ramGauge_->setValue(su.memPercent);
+    }
+    if (ramDetail_)
+        ramDetail_->setText(QString("%1 / %2 GB")
+                                .arg(su.memUsedGB, 0, 'f', 1)
+                                .arg(su.memTotalGB, 0, 'f', 0));
 
     if (tray_)
         tray_->setToolTip(QString("MacFans — %1 %2°C").arg(cap).arg(gv, 0, 'f', 0));

@@ -7,6 +7,7 @@
 #include <QSlider>
 #include <QPushButton>
 #include <QButtonGroup>
+#include <QFrame>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
@@ -20,6 +21,48 @@ static QColor popupTempColor(double t) {
     if (t < 65) return QColor("#d5b445");
     if (t < 80) return QColor("#e0893f");
     return QColor("#e05a4f");
+}
+
+// ---------------- MiniBar ----------------
+MiniBar::MiniBar(QWidget *parent) : QWidget(parent) { setFixedHeight(34); }
+
+void MiniBar::set(const QString &label, double pct, const QColor &color) {
+    label_ = label;
+    pct_ = qBound(0.0, pct, 100.0);
+    color_ = color;
+    update();
+}
+
+void MiniBar::paintEvent(QPaintEvent *) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const double w = width();
+
+    // Label + value line.
+    QFont f = font();
+    f.setPointSizeF(11.5);
+    f.setWeight(QFont::DemiBold);
+    p.setFont(f);
+    p.setPen(QColor(190, 197, 208));
+    p.drawText(QRectF(0, 0, w, 16), Qt::AlignLeft | Qt::AlignVCenter, label_);
+    p.setPen(color_);
+    p.drawText(QRectF(0, 0, w, 16), Qt::AlignRight | Qt::AlignVCenter,
+               QString("%1%").arg(qRound(pct_)));
+
+    // Track + gradient fill.
+    const double by = 22, bh = 6;
+    QRectF track(0, by, w, bh);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(255, 255, 255, 28));
+    p.drawRoundedRect(track, bh / 2, bh / 2);
+    if (pct_ > 0.5) {
+        QLinearGradient g(0, 0, w, 0);
+        g.setColorAt(0, color_.darker(120));
+        g.setColorAt(1, color_.lighter(135));
+        QRectF fill(0, by, w * pct_ / 100.0, bh);
+        p.setBrush(g);
+        p.drawRoundedRect(fill, bh / 2, bh / 2);
+    }
 }
 
 // Margin around the card for the drawn drop shadow.
@@ -63,6 +106,21 @@ TrayPopup::TrayPopup(FanModel *model, QWidget *parent)
     head->addLayout(headText);
     head->addStretch();
     v->addLayout(head);
+
+    // CPU + Memory mini bars.
+    auto *divider1 = new QFrame;
+    divider1->setObjectName("popupDivider");
+    divider1->setFixedHeight(1);
+    v->addWidget(divider1);
+    cpuBar_ = new MiniBar;
+    ramBar_ = new MiniBar;
+    v->addWidget(cpuBar_);
+    v->addWidget(ramBar_);
+
+    auto *divider2 = new QFrame;
+    divider2->setObjectName("popupDivider");
+    divider2->setFixedHeight(1);
+    v->addWidget(divider2);
 
     // Mode segmented control.
     auto *modeRow = new QHBoxLayout;
@@ -158,6 +216,17 @@ void TrayPopup::refresh() {
     double t = model_->maxTemp();
     tempLabel_->setText(QString("Hottest  %1°C").arg(t, 0, 'f', 0));
     tempLabel_->setStyleSheet(QString("color:%1;").arg(popupTempColor(t).name()));
+
+    const SysUsage &su = model_->sysUsage();
+    if (cpuBar_)
+        cpuBar_->set("CPU", su.cpu,
+                     su.cpu < 60 ? QColor("#4aa8ff")
+                     : su.cpu < 85 ? QColor("#e0893f") : QColor("#e05a4f"));
+    if (ramBar_)
+        ramBar_->set(QString("Memory  %1/%2 GB")
+                         .arg(su.memUsedGB, 0, 'f', 1).arg(su.memTotalGB, 0, 'f', 0),
+                     su.memPercent,
+                     su.memPercent < 80 ? QColor("#9a7bff") : QColor("#e05a4f"));
 
     syncing_ = true;
     int id = f.cfg.mode == FanMode::Auto ? 0

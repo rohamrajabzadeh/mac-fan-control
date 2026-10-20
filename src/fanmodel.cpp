@@ -25,6 +25,7 @@ bool FanModel::init() {
     discoverFans();
     discoverSensors();
     loadSettings();
+    sys_ = sysmon_.sample(); // prime CPU delta baseline
     tick();
     return true;
 }
@@ -362,6 +363,9 @@ void FanModel::tick() {
     }
     // Apply control decisions.
     for (auto &f : fans_) applyControl(f);
+
+    // System load.
+    sys_ = sysmon_.sample();
 
     emit updated();
 }

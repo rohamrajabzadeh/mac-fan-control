@@ -10,6 +10,7 @@
 
 #include "smc.h"
 #include "hidsensors.h"
+#include "sysmon.h"
 
 enum class FanMode { Auto, Manual, Curve, Smart };
 
@@ -76,6 +77,7 @@ public:
 
     double maxTemp() const;      // hottest sensor, for the tray summary
     SensorInfo sensorByKey(const QString &key) const;
+    const SysUsage &sysUsage() const { return sys_; }
 
     void setFanConfig(int fanIndex, const FanControlConfig &cfg);
     FanControlConfig fanConfig(int fanIndex) const;
@@ -107,6 +109,8 @@ private:
 
     smc::Connection smc_;
     HidThermal hid_;
+    SysMonitor sysmon_;
+    SysUsage sys_;
     QVector<FanInfo> fans_;
     QVector<SensorInfo> sensors_;
     QTimer timer_;

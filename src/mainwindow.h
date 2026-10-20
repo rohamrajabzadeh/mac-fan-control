@@ -45,13 +45,19 @@ private:
 
     QWidget *buildHeader();
     QWidget *buildFanCard(int fanIndex);
+    QWidget *buildSystemCard();
     QWidget *buildTempPanel();
     void applyModeUi(FanUi &ui, int mode);
     void pushConfig(int fanIndex);
     void updateStatusPill();
     void setupTray();
+    void syncFanCardUi();        // reflect model state in each fan card
 
     FanModel *model_;
+    bool syncingUi_ = false;     // guard to avoid feedback while syncing widgets
+    Gauge *cpuGauge_ = nullptr;
+    Gauge *ramGauge_ = nullptr;
+    QLabel *ramDetail_ = nullptr;
     QVector<FanUi> fanUis_;
     QVector<QLabel *> tempValueLabels_;
     QVector<QLabel *> tempNameLabels_;

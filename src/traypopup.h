@@ -4,11 +4,28 @@
 #pragma once
 
 #include <QWidget>
+#include <QColor>
+#include <QString>
 
 class FanModel;
 class QLabel;
 class QSlider;
 class QPushButton;
+
+// A compact labelled progress bar (CPU / Memory) drawn with QPainter.
+class MiniBar : public QWidget {
+public:
+    explicit MiniBar(QWidget *parent = nullptr);
+    void set(const QString &label, double pct, const QColor &color);
+
+protected:
+    void paintEvent(QPaintEvent *) override;
+
+private:
+    QString label_;
+    double pct_ = 0;
+    QColor color_{"#4aa8ff"};
+};
 
 class TrayPopup : public QWidget {
     Q_OBJECT
@@ -36,6 +53,8 @@ private:
     QLabel *fanRpm_ = nullptr;
     QLabel *tempLabel_ = nullptr;
     QLabel *rpmValue_ = nullptr;
+    MiniBar *cpuBar_ = nullptr;
+    MiniBar *ramBar_ = nullptr;
     QPushButton *btnAuto_ = nullptr, *btnSmart_ = nullptr, *btnCustom_ = nullptr;
     QWidget *sliderRow_ = nullptr;
     QSlider *slider_ = nullptr;
