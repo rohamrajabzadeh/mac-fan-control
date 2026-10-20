@@ -1,12 +1,14 @@
 #include "mainwindow.h"
 #include "fanmodel.h"
 #include "gauge.h"
+#include "traypopup.h"
 
 #include <QApplication>
 #include <QProcess>
 #include <QFile>
 #include <QFileInfo>
 #include <QSettings>
+#include <QTimer>
 #include <QWidget>
 #include <QLabel>
 #include <QSlider>
@@ -523,22 +525,44 @@ void MainWindow::enableControl() {
     }
 }
 
+void MainWindow::devCapturePopup(const QString &path) {
+    if (!trayPopup_) return;
+    if (!model_->fans().isEmpty()) { // show Custom so the slider is visible
+        FanControlConfig c = model_->fanConfig(0);
+        c.mode = FanMode::Manual;
+        const FanInfo &f = model_->fans().first();
+        c.manualRpm = (f.minRpm + f.maxRpm) / 2.0;
+        model_->setFanConfig(0, c);
+    }
+    trayPopup_->popUpAt(QRect(200, 40, 24, 24));
+    QTimer::singleShot(400, this, [this, path] {
+        trayPopup_->grab().save(path);
+        qApp->quit();
+    });
+}
+
 void MainWindow::setupTray() {
     if (!QSystemTrayIcon::isSystemTrayAvailable()) return;
 
     tray_ = new QSystemTrayIcon(QIcon(":/icons/fan.png"), this);
-    auto *menu = new QMenu(this);
-    menu->addAction("Show MacFans", this, [this] { showNormal(); raise(); activateWindow(); });
-    menu->addAction("Restore Fans to Auto", this, [this] { model_->restoreAllAuto(); });
-    menu->addSeparator();
-    menu->addAction("Quit", qApp, &QApplication::quit);
-    tray_->setContextMenu(menu);
-    tray_->show();
 
+    // Rich dropdown shown on click (no plain QMenu, so Trigger fires).
+    trayPopup_ = new TrayPopup(model_);
+    connect(trayPopup_, &TrayPopup::openWindowRequested, this, [this] {
+        showNormal(); raise(); activateWindow();
+    });
+    connect(trayPopup_, &TrayPopup::quitRequested, qApp, &QApplication::quit);
+    connect(model_, &FanModel::updated, this, [this] {
+        if (trayPopup_ && trayPopup_->isVisible()) trayPopup_->refresh();
+    });
+
+    tray_->show();
     connect(tray_, &QSystemTrayIcon::activated, this,
             [this](QSystemTrayIcon::ActivationReason r) {
-                if (r == QSystemTrayIcon::Trigger) {
-                    showNormal(); raise(); activateWindow();
+                if (r == QSystemTrayIcon::Trigger ||
+                    r == QSystemTrayIcon::Context) {
+                    if (trayPopup_->isVisible()) trayPopup_->hide();
+                    else trayPopup_->popUpAt(tray_->geometry());
                 }
             });
 }

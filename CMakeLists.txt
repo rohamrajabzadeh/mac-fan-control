@@ -43,6 +43,8 @@ qt_add_executable(MacFans
     src/gauge.h
     src/mainwindow.cpp
     src/mainwindow.h
+    src/traypopup.cpp
+    src/traypopup.h
     resources/resources.qrc
     ${APP_ICON}
 )

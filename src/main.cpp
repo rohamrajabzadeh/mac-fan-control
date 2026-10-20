@@ -43,6 +43,11 @@ int main(int argc, char **argv) {
         });
     }
 
+    if (qEnvironmentVariableIsSet("MACFANS_SHOT_POPUP")) {
+        const QString pp = qEnvironmentVariable("MACFANS_SHOT_POPUP");
+        QTimer::singleShot(1500, [&w, pp] { w.devCapturePopup(pp); });
+    }
+
     int rc = app.exec();
     model->restoreAllAuto(); // safety net on exit
     return rc;

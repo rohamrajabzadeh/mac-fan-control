@@ -15,11 +15,15 @@ class QPushButton;
 class QWidget;
 class QSystemTrayIcon;
 class QGridLayout;
+class TrayPopup;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(FanModel *model, QWidget *parent = nullptr);
+
+public:
+    void devCapturePopup(const QString &path); // dev-only screenshot helper
 
 private slots:
     void refresh();
@@ -56,4 +60,5 @@ private:
     QLabel *statusPill_ = nullptr;
     QPushButton *enableBtn_ = nullptr;
     QSystemTrayIcon *tray_ = nullptr;
+    TrayPopup *trayPopup_ = nullptr;
 };
