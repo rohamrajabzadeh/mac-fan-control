@@ -86,26 +86,41 @@ void FanModel::discoverFans() {
     }
 }
 
+// Map a raw SMC temperature key to a human-readable group and a category icon.
+// On Apple Silicon temperatures are spread across many per-zone keys; we fold
+// them into a handful of meaningful groups (CPU = avg Tp/Te/Ts, GPU = avg Tg,
+// per the documented Apple Silicon convention) instead of showing 50 cryptic
+// FourCCs. Comparison is case-sensitive: the lower-case per-cluster families
+// (Tp, Te, Tg, Ts, Tc, Th, Tm, Ta) are the real zones; the upper-case
+// proximity/die keys (TCxx, THxx, TVxx …) fall into a single "System" group.
+static void groupForKey(const QString &key, QString &label, QString &icon) {
+    const QString p = key.left(2);
+    if (p == "Tp")                 { label = "CPU Performance Cores"; icon = "cpu"; }
+    else if (p == "Te")            { label = "CPU Efficiency Cores";  icon = "cpu"; }
+    else if (p == "Tg" || p == "Tf") { label = "GPU";                icon = "gpu"; }
+    else if (p == "Tc")            { label = "CPU";                   icon = "cpu"; }
+    else if (p == "Ts" || p == "Th") { label = "SoC";                icon = "cpu"; }
+    else if (p == "Tm")            { label = "Memory";               icon = "ram"; }
+    else if (p == "Ta")            { label = "Ambient";              icon = "snow"; }
+    else                           { label = "System";               icon = "temp"; }
+}
+
 QString FanModel::friendlyName(const QString &key) {
-    static const QHash<QString, QString> names = {
-        {"TC0P", "CPU Proximity"}, {"TC0D", "CPU Die"},   {"TC0E", "CPU"},
-        {"TC0F", "CPU"},           {"TG0P", "GPU Proximity"}, {"TG0D", "GPU Die"},
-        {"TCGC", "GPU Cores"},     {"TCSA", "CPU System Agent"},
-        {"Th0H", "Heatpipe"},      {"Ts0P", "Palm Rest"}, {"TB0T", "Battery"},
-        {"TA0P", "Ambient"},       {"TM0P", "Memory"},    {"Tp0C", "Power Supply"},
-        {"TaLP", "Airflow Left"},  {"TaRF", "Airflow Right"},
-        {"Tp09", "CPU Perf Core 1"}, {"Tp0T", "CPU Perf Cluster"},
-        {"Te05", "CPU Efficiency"}, {"Tg05", "GPU"},
-    };
-    auto it = names.find(key);
-    if (it != names.end()) return it.value();
-    return key; // show the raw FourCC when unknown
+    QString label, icon;
+    groupForKey(key, label, icon);
+    return label;
 }
 
 void FanModel::discoverSensors() {
     sensors_.clear();
     uint32_t count = smc_.keyCount();
     if (count == 0 || count > 4096) return;
+
+    // Fixed display order (hottest/most relevant first).
+    const QStringList order = {"CPU Performance Cores", "CPU Efficiency Cores",
+                               "CPU", "GPU", "SoC", "Memory", "Ambient",
+                               "System"};
+    QHash<QString, SensorInfo> groups;
 
     for (uint32_t i = 0; i < count; ++i) {
         std::string k = smc_.keyAtIndex(i);
@@ -116,17 +131,23 @@ void FanModel::discoverSensors() {
         QString type = QString::fromStdString(v.type).trimmed();
         if (type != "flt" && type != "sp78" && type != "fp88") continue;
         double val = v.toDouble();
-        if (val < 1.0 || val > 150.0) continue; // drop implausible / idle keys
-        SensorInfo s;
-        s.key = QString::fromStdString(k);
-        s.label = friendlyName(s.key);
-        s.value = val;
-        sensors_.push_back(s);
+        if (val < 20.0 || val > 120.0) continue; // drop noise / non-temperature keys
+
+        QString key = QString::fromStdString(k), label, icon;
+        groupForKey(key, label, icon);
+        SensorInfo &g = groups[label];
+        g.key = label;
+        g.label = label;
+        g.iconKey = icon;
+        g.memberKeys.push_back(key);
     }
-    std::sort(sensors_.begin(), sensors_.end(),
-              [](const SensorInfo &a, const SensorInfo &b) {
-                  return a.label < b.label;
-              });
+
+    for (const QString &name : order)
+        if (groups.contains(name))
+            sensors_.push_back(groups.take(name));
+    // Any unexpected groups appended after the known order.
+    for (auto &g : groups)
+        sensors_.push_back(g);
 }
 
 SensorInfo FanModel::sensorByKey(const QString &key) const {
@@ -141,18 +162,14 @@ double FanModel::maxTemp() const {
     return m;
 }
 
-// The temperature the Smart preset reacts to: hottest CPU/GPU/SoC-class
-// sensor if any are identifiable, otherwise the hottest sensor overall.
+// The temperature the Smart preset reacts to: hottest CPU/GPU group if any are
+// identifiable, otherwise the hottest group overall.
 double FanModel::smartTemp() const {
     double core = 0, any = 0;
     for (const auto &s : sensors_) {
         any = std::max(any, s.value);
-        if (s.key.size() >= 2) {
-            QChar c = s.key[1];
-            if (c == 'C' || c == 'c' || c == 'G' || c == 'g' || c == 'p' ||
-                c == 'P')
-                core = std::max(core, s.value);
-        }
+        if (s.iconKey == "cpu" || s.iconKey == "gpu")
+            core = std::max(core, s.value);
     }
     return core > 0 ? core : any;
 }
@@ -277,8 +294,12 @@ void FanModel::tick() {
             f.target = tg.toDouble();
     }
     for (auto &s : sensors_) {
-        smc::Value v;
-        if (smc_.read(s.key.toStdString(), v)) s.value = v.toDouble();
+        double sum = 0; int n = 0;
+        for (const QString &mk : s.memberKeys) {
+            smc::Value v;
+            if (smc_.read(mk.toStdString(), v)) { sum += v.toDouble(); ++n; }
+        }
+        if (n > 0) s.value = sum / n;
     }
     // Smooth the Smart-mode driving temperature (EMA) to avoid fan hunting.
     double st = smartTemp();

@@ -36,18 +36,9 @@ static QColor tempColor(double t) {
 
 static QColor rpmAccent() { return QColor("#4aa8ff"); }
 
-// Pick one of the bundled Macs Fan Control category icons for a sensor,
-// based on its SMC FourCC prefix.
-static QString sensorIconPath(const QString &key) {
-    if (key.size() < 2) return ":/icons/temp.png";
-    QChar c1 = key[1];
-    if (c1 == 'C' || c1 == 'p' || c1 == 'P') return ":/icons/cpu.png"; // CPU / SoC
-    if (c1 == 'G' || c1 == 'g')              return ":/icons/gpu.png"; // GPU
-    if (c1 == 'm' || c1 == 'M')              return ":/icons/ram.png"; // memory
-    if (c1 == 'h' || c1 == 'H')              return ":/icons/snow.png";// heatpipe/cooling
-    if (c1 == 'B')                            return ":/icons/power.png"; // battery/power
-    if (c1 == 'S' || c1 == 's')              return ":/icons/storage.png";
-    return ":/icons/temp.png";
+// Category icon for a grouped sensor row (from its iconKey).
+static QString sensorIconPath(const QString &iconKey) {
+    return QString(":/icons/%1.png").arg(iconKey.isEmpty() ? "temp" : iconKey);
 }
 
 // A QLabel holding a scaled icon.
@@ -234,7 +225,7 @@ QWidget *MainWindow::buildFanCard(int fanIndex) {
     cg->setVerticalSpacing(10);
     ui.sensorCombo = new QComboBox;
     for (const auto &s : model_->sensors())
-        ui.sensorCombo->addItem(QString("%1  (%2)").arg(s.label, s.key), s.key);
+        ui.sensorCombo->addItem(s.label, s.key);
     ui.tLow = new QSpinBox;  ui.tLow->setRange(0, 120);  ui.tLow->setSuffix(" °C");
     ui.tHigh = new QSpinBox; ui.tHigh->setRange(1, 120); ui.tHigh->setSuffix(" °C");
     ui.rpmLow = new QSpinBox;  ui.rpmLow->setRange(0, 10000);  ui.rpmLow->setSingleStep(50); ui.rpmLow->setSuffix(" rpm");
@@ -372,7 +363,7 @@ QWidget *MainWindow::buildTempPanel() {
     grid->setVerticalSpacing(7);
 
     const auto &sensors = model_->sensors();
-    const int cols = 2;
+    const int cols = 1;
     for (int i = 0; i < sensors.size(); ++i) {
         const auto &s = sensors[i];
         auto *chip = new QWidget;
@@ -380,10 +371,10 @@ QWidget *MainWindow::buildTempPanel() {
         auto *rl = new QHBoxLayout(chip);
         rl->setContentsMargins(9, 5, 10, 5);
         rl->setSpacing(7);
-        rl->addWidget(iconLabel(sensorIconPath(s.key), 16));
+        rl->addWidget(iconLabel(sensorIconPath(s.iconKey), 16));
         auto *nameL = new QLabel(s.label);
         nameL->setObjectName("tempName");
-        nameL->setToolTip(s.key);
+        nameL->setToolTip(s.memberKeys.join(", "));
         nameL->setMinimumWidth(0);
         auto *valL = new QLabel;
         valL->setObjectName("tempVal");

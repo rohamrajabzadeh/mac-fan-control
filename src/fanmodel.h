@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <QTimer>
 
@@ -40,10 +41,16 @@ struct FanInfo {
     double smoothedTemp = 0;     // EMA used by Smart mode
 };
 
+// A displayed temperature entry. On Apple Silicon each entry is a *group* of
+// raw SMC keys (e.g. all Tp* performance-core sensors) shown as one averaged,
+// human-readable row. `key` is a stable group id, `memberKeys` the raw SMC
+// FourCCs it averages, `iconKey` selects a category icon.
 struct SensorInfo {
-    QString key;     // e.g. "TC0P"
-    QString label;   // friendly label
+    QString key;              // group id (also used as the stored curve key)
+    QString label;            // friendly label, e.g. "CPU Performance Cores"
+    QString iconKey;          // "cpu" | "gpu" | "ram" | "snow" | "power" | "temp"
     double value = 0;
+    QStringList memberKeys;   // raw SMC keys averaged into this entry
 };
 
 class FanModel : public QObject {
