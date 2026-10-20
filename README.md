@@ -59,6 +59,19 @@ cmake --build build -j8
 
 Output: `build/MacFans.app`.
 
+## Install (self-contained, recommended)
+
+```bash
+scripts/install.sh          # build + bundle Qt + sign + copy to /Applications
+scripts/install.sh --login  # also start MacFans at login
+```
+
+This bundles the Qt frameworks and all their dependencies into the `.app`,
+applies a valid ad-hoc code signature, and installs it to `/Applications` — so
+it runs on any Mac without Homebrew and without the "damaged / unidentified
+developer" Gatekeeper error. Internally it runs `scripts/package.sh`
+(→ `scripts/bundle_deps.py`), a small reliable stand-in for `macdeployqt`.
+
 ## Run
 
 Monitoring works with no privileges:
